@@ -1,0 +1,19 @@
+# Git LFS configuration for large files
+# Track large data files with Git LFS
+
+*.hspy filter=lfs diff=lfs merge=lfs -text
+*.mrc filter=lfs diff=lfs merge=lfs -text
+*.tiff filter=lfs diff=lfs merge=lfs -text
+*.tif filter=lfs diff=lfs merge=lfs -text
+*.h5 filter=lfs diff=lfs merge=lfs -text
+*.hdf5 filter=lfs diff=lfs merge=lfs -text
+*.npy filter=lfs diff=lfs merge=lfs -text
+*.npz filter=lfs diff=lfs merge=lfs -text
+
+# Keep metadata and config files in Git
+*.yaml text
+*.yml text
+*.json text
+*.txt text
+*.md text
+

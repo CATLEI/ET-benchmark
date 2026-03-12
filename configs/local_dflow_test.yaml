@@ -1,0 +1,43 @@
+# Local dflow Test Configuration
+# This configuration is for testing dflow workflow on local Kubernetes
+
+# Dataset configuration
+datasets:
+  test_dataset_v1:
+    path: "./data/datasets/simulated/test_dataset_v1"
+    tilt_series: "raw/tilt_series.hspy"
+    format: "hyperspy"
+
+# Algorithms configuration
+# Each algorithm must have a docker_image specified for dflow
+algorithms:
+  wbp:
+    enabled: true
+    docker_image: "et-dflow/wbp:latest"  # Local Docker image
+    parameters:
+      filter_type: "ramp"
+      interpolation: "linear"
+    resources:  # Optional: Resource requirements
+      cpu: 2
+      memory: "4Gi"
+      gpu: 0
+
+# Evaluation configuration
+evaluation:
+  metrics:
+    - "psnr"
+    - "ssim"
+    - "mse"
+  ground_truth_path: "./data/datasets/simulated/test_dataset_v1/ground_truth/volume.hspy"  # Optional but recommended
+
+# Workflow configuration
+workflow:
+  name: "local-dflow-benchmark"
+  type: "baseline_benchmark"
+  output_dir: "./results/dflow_test"
+
+# dflow configuration (optional, can be set via environment variables)
+dflow:
+  host: "http://localhost:2746"  # dflow server host (Argo Workflows)
+  namespace: "argo"  # Kubernetes namespace
+

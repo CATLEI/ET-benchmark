@@ -1,0 +1,67 @@
+# Dockerfile for building the WBP image on Bohr Station.
+#
+# Bohr currently does not support copying local workspace files into the image
+# build context, so this Dockerfile pulls the ET-dflow repository during build.
+#
+# Required build args:
+#   ET_DFLOW_REPO_URL  - Git repository URL for ET-dflow
+#
+# Optional build args:
+#   ET_DFLOW_REPO_REF  - Branch, tag, or commit to build (default: main)
+#
+# Example:
+#   docker build \
+#     -f docker/algorithms/wbp/Dockerfile.bohr \
+#     --build-arg ET_DFLOW_REPO_URL=https://github.com/your-org/ET-dflow.git \
+#     --build-arg ET_DFLOW_REPO_REF=main \
+#     -t et-dflow/wbp:bohr .
+
+FROM docker.1ms.run/python:3.10-slim AS builder
+
+ARG ET_DFLOW_REPO_URL
+ARG ET_DFLOW_REPO_REF=main
+
+WORKDIR /build
+
+# Configure apt to use domestic mirrors and install git for fetching source code.
+RUN sed -i 's/deb.debian.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list.d/debian.sources || \
+    sed -i 's|http://deb.debian.org|https://mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list || \
+    echo "deb https://mirrors.tuna.tsinghua.edu.cn/debian/ bookworm main" > /etc/apt/sources.list && \
+    echo "deb https://mirrors.tuna.tsinghua.edu.cn/debian/ bookworm-updates main" >> /etc/apt/sources.list && \
+    echo "deb https://mirrors.tuna.tsinghua.edu.cn/debian-security bookworm-security main" >> /etc/apt/sources.list && \
+    apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN test -n "${ET_DFLOW_REPO_URL}" || \
+    (echo "ET_DFLOW_REPO_URL build arg is required." >&2 && exit 1)
+
+RUN git clone "${ET_DFLOW_REPO_URL}" repo && \
+    cd repo && \
+    git checkout "${ET_DFLOW_REPO_REF}"
+
+WORKDIR /build/repo
+
+# Install Python dependencies and then install ET-dflow itself.
+RUN pip install --no-cache-dir --timeout 300 \
+    -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt && \
+    pip install --no-cache-dir --timeout 300 \
+    -i https://pypi.tuna.tsinghua.edu.cn/simple --no-deps .
+
+# Prepare runtime entrypoint assets in stable locations for the final stage.
+RUN cp docker/algorithms/wbp/run_algorithm.py /tmp/run_algorithm.py && \
+    cp docker/algorithms/wbp/docker-entrypoint.sh /tmp/docker-entrypoint.sh && \
+    chmod +x /tmp/docker-entrypoint.sh
+
+FROM docker.1ms.run/python:3.10-slim
+
+WORKDIR /app
+
+COPY --from=builder /usr/local/lib/python3.10/site-packages /usr/local/lib/python3.10/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
+COPY --from=builder /tmp/run_algorithm.py /app/run_algorithm.py
+COPY --from=builder /tmp/docker-entrypoint.sh /app/docker-entrypoint.sh
+
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
+CMD []

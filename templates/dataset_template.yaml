@@ -1,0 +1,34 @@
+# Template for dataset configuration
+# Updated to remove complexity field
+
+dataset_name:
+  name: "Dataset Name"
+  type: "simulated"  # or "experimental"
+  version: "1.0"
+  has_ground_truth: true
+  path: "./data/datasets/{type}/{dataset_name}_v1"
+  tilt_series: "raw/tilt_series.hspy"
+  ground_truth: "ground_truth/volume.hspy"  # Optional if has_ground_truth is false
+  format: "hyperspy"  # or "mrc", "tiff", "hdf5"
+  metadata_path: "./data/datasets/{type}/{dataset_name}_v1/metadata.yaml"
+  description: "Dataset description"
+  
+  # Quality indicators (auto-read from metadata.yaml, shown here for reference)
+  # These are optional and will be read from metadata.yaml if not specified
+  quality_indicators:
+    snr: 0.0  # Signal-to-Noise Ratio
+    missing_wedge_angle: 0.0  # degrees
+    data_completeness: 0.0  # 0-1
+  
+  metadata:
+    # EMDB standard metadata fields
+    sample_type: "nanoparticle"
+    material: "Au"
+    pixel_size: 0.1  # nm
+    tilt_range: [-70, 70]  # degrees
+    tilt_axis: "single"
+    
+  preprocessing:
+    alignment: true
+    normalization: true
+    bad_pixel_removal: true

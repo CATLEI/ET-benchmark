@@ -1,0 +1,88 @@
+# Base configuration for ET-dflow Benchmark Framework
+# This file contains default settings that apply to all environments
+
+# Application settings
+app:
+  name: "ET-dflow Benchmark"
+  version: "0.1.0"
+  description: "Containerized benchmark testing framework for material ET"
+
+# Docker settings
+docker:
+  registry: "${DOCKER_REGISTRY}"
+  namespace: "et-dflow"
+  pull_policy: "IfNotPresent"  # IfNotPresent or Always
+  pre_pull: true  # Whether to pre-pull images before workflow execution
+  validate_images: true  # Whether to validate images are available and runnable
+  validation_timeout: 30  # Timeout in seconds for image validation operations
+
+# dflow settings
+dflow:
+  host: "${DFLOW_HOST}"
+  namespace: "${DFLOW_NAMESPACE}"
+  timeout: 3600  # seconds
+
+# Resource defaults
+resources:
+  default_cpu: 2
+  default_memory: "4Gi"
+  default_gpu: 0
+  max_parallel_algorithms: 4
+
+# Logging defaults
+logging:
+  level: "INFO"
+  format: "json"
+  file: "et_dflow.log"
+
+# Monitoring defaults
+monitoring:
+  enabled: true
+  metrics_port: 8000
+  enable_tracing: false
+
+# Cache settings
+cache:
+  enabled: true
+  ttl_seconds: 86400  # 24 hours
+  max_size_gb: 10
+
+# Output settings
+output:
+  base_path: "./output"
+  save_intermediate: false
+  compression: true
+
+# Algorithms configuration
+# Will be populated in algorithms.yaml
+algorithms: {}
+
+# Datasets configuration
+# Will be populated in datasets.yaml
+datasets: {}
+
+# Missing wedge configuration
+missing_wedge:
+  default_tilt_range: [-70, 70]
+  support_asymmetric: true
+  support_dual_axis: true
+
+# Evaluation settings
+evaluation:
+  default_metrics:
+    - "psnr"
+    - "ssim"
+    - "mse"
+  et_metrics:
+    - "fsc"
+    - "directional_resolution"
+    - "missing_wedge_recovery"
+    - "consistency"
+
+# Visualization settings
+visualization:
+  color_palette: "colorblind_friendly"
+  figure_format: "png"
+  dpi: 300
+  figure_size: [10, 8]
+

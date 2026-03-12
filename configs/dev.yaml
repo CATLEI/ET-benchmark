@@ -1,0 +1,22 @@
+# Development environment configuration
+# Overrides base.yaml settings for development
+
+dflow:
+  host: "http://localhost:2746"
+  namespace: "default"
+
+logging:
+  level: "DEBUG"
+  format: "text"
+
+cache:
+  enabled: true
+  ttl_seconds: 3600  # 1 hour for dev
+
+output:
+  base_path: "./output/dev"
+  save_intermediate: true
+
+resources:
+  max_parallel_algorithms: 2  # Lower for dev
+

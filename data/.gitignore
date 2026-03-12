@@ -1,0 +1,30 @@
+# Git ignore rules for data directory
+
+# Large data files (use Git LFS instead)
+*.hspy
+*.mrc
+*.tiff
+*.tif
+*.h5
+*.hdf5
+*.npy
+*.npz
+
+# Cache and temporary files
+cache/
+*.tmp
+*.cache
+*.log
+
+# Preprocessed data (should be in cache/)
+preprocessing/
+*.aligned.*
+*.normalized.*
+
+# Archive (optional, large files)
+archive/
+
+# OS files
+.DS_Store
+Thumbs.db
+

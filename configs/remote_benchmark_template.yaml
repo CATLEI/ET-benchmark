@@ -1,0 +1,84 @@
+# Remote benchmark template for ET-dflow
+# -------------------------------------
+# Usage:
+#   et-dflow benchmark configs/remote_benchmark_template.yaml --output-dir ./results
+#
+# Notes:
+# - ET-dflow now supports remote cluster mode only.
+# - The CLI runs on the master node.
+# - Workflow steps run on Kubernetes/Argo workers.
+# - Intermediate artifacts are transferred through MinIO/S3.
+# - Replace all example paths, image names, and endpoints before running.
+
+datasets:
+  tomo_sample:
+    # Absolute path is recommended on the submission machine.
+    # This file will be uploaded as a dflow artifact before the workflow starts.
+    path: "E:/data/et/sample_01/raw/tilt_series.mrc"
+    format: "mrc"
+
+    # Optional, but recommended if you want PSNR / SSIM / MSE.
+    # This file is also uploaded as an artifact.
+    ground_truth_path: "E:/data/et/sample_01/raw/ground_truth.hspy"
+
+algorithms:
+  wbp:
+    enabled: true
+    docker_image: "registry.example.com/et-dflow/wbp:latest"
+    parameters:
+      filter_type: "ramp"
+      filter_cutoff: 1.0
+    resources:
+      cpu: 2
+      memory: "4Gi"
+      gpu: false
+
+  sirt:
+    enabled: false
+    docker_image: "registry.example.com/et-dflow/sirt:latest"
+    parameters:
+      iterations: 30
+      relaxation_factor: 0.5
+    resources:
+      cpu: 4
+      memory: "8Gi"
+      gpu: false
+
+evaluation:
+  metrics:
+    - "psnr"
+    - "ssim"
+    - "mse"
+
+workflow:
+  name: "remote-et-benchmark"
+  type: "baseline_benchmark"
+
+  # The CLI also overrides this when you pass --output-dir.
+  output_dir: "./results"
+
+  # Required in remote mode.
+  # This image is used for non-algorithm steps such as:
+  # data preparation, evaluation, comparison, and export.
+  # It should contain ET-dflow runtime dependencies.
+  runner_image: "registry.example.com/et-dflow/runner:latest"
+
+dflow:
+  mode: "remote"
+
+  # Argo / dflow endpoint
+  host: "https://argo.example.com"
+  namespace: "argo"
+
+  # Optional depending on your cluster/network setup
+  k8s_api_server: "https://kubernetes.default.svc"
+
+  # MinIO / S3 artifact storage
+  s3_endpoint: "http://minio.example.com:9000"
+  s3_bucket_name: "et-dflow"
+  s3_access_key: "replace-with-your-access-key"
+  s3_secret_key: "replace-with-your-secret-key"
+  s3_secure: false
+
+  # Optional console URL for human access
+  s3_console: "http://minio.example.com:9001"

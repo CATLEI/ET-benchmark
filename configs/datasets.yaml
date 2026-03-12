@@ -1,0 +1,95 @@
+# Dataset configuration file
+# Updated to support new directory structure (removed complexity field)
+
+# Simulated datasets
+test_dataset_v1:
+  name: "Test Dataset"
+  type: "simulated"
+  version: "1.0"
+  has_ground_truth: true
+  path: "./data/datasets/simulated/test_dataset_v1"
+  tilt_series: "raw/tilt_series.hspy"
+  ground_truth: "ground_truth/volume.hspy"
+  format: "hyperspy"
+  metadata_path: "./data/datasets/simulated/test_dataset_v1/metadata.yaml"
+  description: "Test dataset for ET-dflow framework"
+
+# Example simulated datasets (update paths when datasets are added)
+simulated_nanoparticle_v1:
+  name: "Simulated Nanoparticle"
+  type: "simulated"
+  version: "1.0"
+  has_ground_truth: true
+  path: "./data/datasets/simulated/au_nanoparticle_v1"
+  tilt_series: "raw/tilt_series.hspy"
+  ground_truth: "ground_truth/volume.hspy"
+  format: "hyperspy"
+  metadata_path: "./data/datasets/simulated/au_nanoparticle_v1/metadata.yaml"
+  description: "Simulated gold nanoparticle dataset"
+  # Quality indicators (auto-read from metadata.yaml, shown here for reference)
+  quality_indicators:
+    snr: 15.2
+    missing_wedge_angle: 140
+    data_completeness: 0.78
+
+simulated_interface_v1:
+  name: "Simulated Interface"
+  type: "simulated"
+  version: "1.0"
+  has_ground_truth: true
+  path: "./data/datasets/simulated/fept_interface_v1"
+  tilt_series: "raw/tilt_series.hspy"
+  ground_truth: "ground_truth/volume.hspy"
+  format: "hyperspy"
+  metadata_path: "./data/datasets/simulated/fept_interface_v1/metadata.yaml"
+  description: "Simulated material interface dataset"
+
+simulated_defect_v1:
+  name: "Simulated Defect"
+  type: "simulated"
+  version: "1.0"
+  has_ground_truth: true
+  path: "./data/datasets/simulated/si_defect_v1"
+  tilt_series: "raw/tilt_series.hspy"
+  ground_truth: "ground_truth/volume.hspy"
+  format: "hyperspy"
+  metadata_path: "./data/datasets/simulated/si_defect_v1/metadata.yaml"
+  description: "Simulated defect structure dataset"
+
+# Experimental datasets
+walnut_v1:
+  name: "Walnut Dataset"
+  type: "experimental"
+  version: "1.0"
+  has_ground_truth: false
+  path: "./data/datasets/experimental/public/walnut_v1"
+  tilt_series: "raw/tilt_series.mrc"
+  format: "mrc"
+  metadata_path: "./data/datasets/experimental/public/walnut_v1/metadata.yaml"
+  description: "Public walnut dataset for ET reconstruction"
+
+fept_nanoparticle_v1:
+  name: "FePt Nanoparticle"
+  type: "experimental"
+  version: "1.0"
+  has_ground_truth: false
+  path: "./data/datasets/experimental/private/fept_nanoparticle_v1"
+  tilt_series: "raw/tilt_series.hspy"
+  format: "hyperspy"
+  metadata_path: "./data/datasets/experimental/private/fept_nanoparticle_v1/metadata.yaml"
+  description: "Experimental FePt nanoparticle dataset"
+
+# EMDB datasets (placeholder - would reference actual EMDB entries)
+emdb_example_v1:
+  name: "EMDB Example"
+  type: "experimental"
+  version: "1.0"
+  has_ground_truth: false
+  path: "./data/datasets/experimental/public/emdb_example_v1"
+  tilt_series: "raw/tilt_series.mrc"
+  format: "mrc"
+  metadata_path: "./data/datasets/experimental/public/emdb_example_v1/metadata.yaml"
+  description: "Example dataset from EMDB"
+  metadata:
+    source: "EMDB"
+    emdb_id: "EMD-XXXXX"

@@ -1,0 +1,130 @@
+# Algorithm configurations
+# Each algorithm has its Docker image and default parameters
+#
+# All algorithms are managed uniformly in this file, regardless of their source.
+# Algorithms may use different Docker images (internal builds or external pre-built images).
+
+algorithms:
+  wbp:
+    name: "Weighted Back-Projection"
+    docker_image: "${DOCKER_REGISTRY}/et-dflow/wbp:latest"
+    category: "classic"
+    parameters:
+      filter_type: "ramp"
+      filter_cutoff: 1.0
+    resources:
+      cpu: 2
+      memory: "4Gi"
+      gpu: false
+  
+  sirt:
+    name: "Simultaneous Iterative Reconstruction Technique"
+    docker_image: "${DOCKER_REGISTRY}/et-dflow/sirt:latest"
+    category: "iterative"
+    parameters:
+      iterations: 30
+      relaxation_factor: 0.5
+    resources:
+      cpu: 4
+      memory: "8Gi"
+      gpu: false
+  
+  resire:
+    name: "RESIRE"
+    docker_image: "${DOCKER_REGISTRY}/et-dflow/resire:latest"
+    category: "iterative"
+    parameters:
+      iterations: 50
+      oversampling_ratio: 2.0
+    resources:
+      cpu: 4
+      memory: "8Gi"
+      gpu: false
+  
+  genfire:
+    name: "GENFIRE"
+    docker_image: "registry.dp.tech/davinci/genfire-python:20260110195114"
+    category: "iterative"
+    description: "GENFIRE reconstruction algorithm"
+    parameters:
+      iterations: 100
+      oversampling_ratio: 1.5
+      # GENFIRE-specific parameters
+      # Add more as needed based on GENFIRE API
+    resources:
+      cpu: 4
+      memory: "8Gi"
+      gpu: false
+    # Note: May need adapter script if image doesn't have /app/run_algorithm.py
+  
+  deepdewedge:
+    name: "DeepDeWedge"
+    docker_image: "registry.dp.tech/davinci/deepdewedge:20260113145259"
+    category: "deep_learning"
+    description: "Deep learning-based missing wedge recovery"
+    parameters:
+      # DeepDeWedge-specific parameters
+      # model_path: ""  # If model needs to be specified
+      iterations: 50
+    resources:
+      cpu: 4
+      memory: "16Gi"  # Deep learning models may need more memory
+      gpu: 1  # DeepDeWedge likely needs GPU
+    # Note: Uses 'ddw' command, may need custom command template
+  
+  tigre:
+    name: "TIGRE"
+    docker_image: "registry.dp.tech/davinci/tigre:20260113153441"
+    category: "iterative"
+    description: "Tomographic Iterative GPU-based Reconstruction Engine"
+    parameters:
+      iterations: 30
+      # TIGRE-specific parameters
+    resources:
+      cpu: 4
+      memory: "8Gi"
+      gpu: 1  # TIGRE requires CUDA/GPU support
+    # Note: Uses Python 'tigre' module, may need adapter script
+  
+  isonet:
+    name: "IsoNet"
+    docker_image: "registry.dp.tech/davinci/isonet:20260113153511"
+    category: "deep_learning"
+    description: "IsoNet for cryo-ET reconstruction"
+    parameters:
+      # IsoNet-specific parameters
+      # Add based on IsoNet API
+    resources:
+      cpu: 4
+      memory: "16Gi"
+      gpu: 1  # Deep learning model requires GPU
+    # Note: Uses 'isonet.py' command, may need custom command template
+  
+  wucon:
+    name: "WUCon"
+    docker_image: "registry.dp.tech/davinci/wucon:20260113160259"
+    category: "iterative"
+    description: "WUCon reconstruction algorithm"
+    parameters:
+      # WUCon-specific parameters
+      # Add based on WUCon API
+    resources:
+      cpu: 4
+      memory: "8Gi"
+      gpu: 1  # May require GPU
+    # Note: Source code in /opt/wucon/src, may need adapter script
+  
+  astra:
+    name: "ASTRA Toolbox"
+    docker_image: "registry.dp.tech/davinci/astra-toolbox:20260113161211"
+    category: "iterative"
+    description: "ASTRA Toolbox for tomographic reconstruction"
+    parameters:
+      iterations: 30
+      # ASTRA-specific parameters
+    resources:
+      cpu: 4
+      memory: "8Gi"
+      gpu: 1  # ASTRA supports GPU acceleration
+    # Note: Uses Python 'astra' module, may need adapter script
+

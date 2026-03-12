@@ -1,0 +1,75 @@
+# Dataset Metadata Schema
+# This schema defines the structure for dataset metadata.yaml files
+
+dataset_id: string  # Format: {material}_{sample_type}_v{version}
+name: string
+version: string  # Format: "1.0", "2.0", etc.
+type: string  # "simulated" or "experimental"
+created_date: string  # ISO format: "YYYY-MM-DD"
+last_updated: string  # ISO format: "YYYY-MM-DD"
+
+# Data files information
+data_files:
+  tilt_series:
+    path: string  # Relative path from dataset root
+    format: string  # "hyperspy", "mrc", "tiff", "h5"
+    size_mb: float
+    shape: list[int]  # [tilt_angles, height, width]
+    dtype: string  # "float32", "uint16", etc.
+  ground_truth:
+    path: string  # Relative path from dataset root
+    format: string
+    size_mb: float
+    available: bool
+    shape: list[int]  # [z, y, x]
+  tilt_angles:
+    path: string
+    format: string  # "csv", "txt"
+    columns: list[string]
+
+# Experimental parameters (objective metrics, replaces complexity)
+experimental_parameters:
+  pixel_size: float  # nm
+  tilt_range: list[float]  # [min, max] degrees
+  tilt_step: float  # degrees
+  num_projections: int
+  tilt_axis: string  # "single" or "dual"
+  acceleration_voltage: float  # kV
+  defocus: float  # nm
+  dose_per_angle: float  # e-/Å²
+
+# Sample information
+sample:
+  type: string  # "nanoparticle", "interface", "defect", etc.
+  material: string  # "Au", "FePt", "Si", etc.
+  size_nm: list[float]  # [x, y, z] approximate dimensions
+  description: string
+
+# Quality metrics (objective, replaces complexity)
+quality_metrics:
+  snr: float  # Signal-to-Noise Ratio
+  contrast: float  # Image contrast (0-1)
+  missing_wedge_angle: float  # degrees
+  data_completeness: float  # 0-1
+  resolution_estimate: float  # nm
+
+# Algorithm challenges (auto-calculated from quality metrics)
+algorithm_challenges:
+  missing_wedge_severity: string  # "low", "medium", "high" (auto-calculated)
+  noise_level: string  # "low", "medium", "high" (auto-calculated)
+  structural_complexity: string  # "low", "medium", "high" (auto-calculated)
+
+# Citation information
+citation:
+  authors: list[string]
+  publication: string
+  doi: string
+  license: string  # "CC-BY-4.0", etc.
+
+# Creation information
+created:
+  date: string  # ISO format
+  creator: string
+  source: string  # "Simulation", "Experiment", "Public Dataset"
+  checksum: string  # sha256 hash
+

@@ -1,0 +1,78 @@
+# Dataset Metadata Template
+# Copy this template to your dataset directory and fill in the information
+# Remove this comment block when using the template
+
+dataset_id: "material_sampletype_v1"  # Format: {material}_{sample_type}_v{version}
+name: "Dataset Name"
+version: "1.0"
+type: "simulated"  # or "experimental"
+created_date: "2024-01-15"
+last_updated: "2024-01-15"
+
+# Data files information
+data_files:
+  tilt_series:
+    path: "raw/tilt_series.hspy"
+    format: "hyperspy"  # or "mrc", "tiff", "h5"
+    size_mb: 0.0  # File size in MB
+    shape: [71, 256, 256]  # [tilt_angles, height, width]
+    dtype: "float32"
+  ground_truth:
+    path: "ground_truth/volume.hspy"
+    format: "hyperspy"
+    size_mb: 0.0
+    available: true  # Set to false if no ground truth
+    shape: [256, 256, 256]  # [z, y, x]
+  tilt_angles:
+    path: "raw/tilt_angles.txt"
+    format: "csv"  # or "txt"
+    columns: ["tilt_angle", "rotation_angle", "shift_x", "shift_y"]
+
+# Experimental parameters (objective metrics, replaces complexity)
+experimental_parameters:
+  pixel_size: 0.1  # nm
+  tilt_range: [-70, 70]  # degrees [min, max]
+  tilt_step: 2.0  # degrees
+  num_projections: 71  # Number of tilt images
+  tilt_axis: "single"  # "single" or "dual"
+  acceleration_voltage: 300  # kV
+  defocus: -2.0  # nm
+  dose_per_angle: 1.5  # e-/Å²
+
+# Sample information
+sample:
+  type: "nanoparticle"  # "nanoparticle", "interface", "defect", etc.
+  material: "Au"  # Material composition
+  size_nm: [50, 50, 50]  # [x, y, z] approximate dimensions in nm
+  description: "Description of the sample"
+
+# Quality metrics (objective, replaces complexity)
+# These can be auto-calculated using scripts/calculate_quality_metrics.py
+quality_metrics:
+  snr: 15.2  # Signal-to-Noise Ratio (auto-calculated)
+  contrast: 0.8  # Image contrast 0-1 (auto-calculated)
+  missing_wedge_angle: 140  # degrees (auto-calculated from tilt_range)
+  data_completeness: 0.78  # 0-1, completeness of tilt series (auto-calculated)
+  resolution_estimate: 2.5  # nm, estimated resolution (auto-calculated)
+
+# Algorithm challenges (auto-calculated from quality metrics)
+# These are automatically computed, do not edit manually
+algorithm_challenges:
+  missing_wedge_severity: "high"  # Based on missing_wedge_angle: <60=low, 60-120=medium, >120=high
+  noise_level: "medium"  # Based on SNR: <10=high, 10-20=medium, >20=low
+  structural_complexity: "medium"  # Based on sample type and size
+
+# Citation information
+citation:
+  authors: ["Author1", "Author2"]
+  publication: "Journal Name, Year"
+  doi: "10.xxxx/xxxxx"
+  license: "CC-BY-4.0"  # License for the dataset
+
+# Creation information
+created:
+  date: "2024-01-15"
+  creator: "Dataset Creator Name"
+  source: "Simulation"  # "Simulation", "Experiment", "Public Dataset"
+  checksum: "sha256:..."  # SHA256 checksum of the dataset (auto-calculated)
+

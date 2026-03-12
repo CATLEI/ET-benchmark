@@ -1,0 +1,36 @@
+{
+  "version": "1.0",
+  "last_updated": "2024-01-15T00:00:00Z",
+  "datasets": {
+    "test_dataset_v1": {
+      "path": "datasets/simulated/test_dataset_v1",
+      "type": "simulated",
+      "has_ground_truth": true,
+      "size_mb": 0.0,
+      "tags": ["test", "simulated"],
+      "quality_metrics": {
+        "snr": 0.0,
+        "missing_wedge_angle": 120.0,
+        "data_completeness": 0.0
+      },
+      "metadata_path": "datasets/simulated/test_dataset_v1/metadata.yaml"
+    }
+  },
+  "statistics": {
+    "total_datasets": 1,
+    "by_type": {
+      "simulated": 1,
+      "experimental": 0
+    },
+    "by_ground_truth": {
+      "with_gt": 1,
+      "without_gt": 0
+    },
+    "by_missing_wedge": {
+      "small": 0,
+      "medium": 1,
+      "large": 0
+    }
+  }
+}
+

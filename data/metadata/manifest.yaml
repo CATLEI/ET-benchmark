@@ -1,0 +1,17 @@
+# Dataset Manifest
+# This file tracks all dataset versions and their metadata
+
+manifest:
+  version: "1.0"
+  last_updated: "2024-01-15T00:00:00Z"
+  
+  datasets:
+    - id: "test_dataset"
+      versions:
+        - version: "1.0"
+          path: "datasets/simulated/test_dataset_v1"
+          checksum: ""  # Will be calculated
+          size_mb: 0.0  # Will be calculated
+          created: "2024-01-15"
+          changes: "Initial migration from old test_dataset structure"
+

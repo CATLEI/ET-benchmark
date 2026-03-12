@@ -1,0 +1,75 @@
+# Test Dataset Metadata
+# This is a migrated test dataset
+
+dataset_id: "test_dataset_v1"
+name: "Test Dataset"
+version: "1.0"
+type: "simulated"
+created_date: "2024-01-15"
+last_updated: "2024-01-15"
+
+# Data files information
+data_files:
+  tilt_series:
+    path: "raw/tilt_series.hspy"
+    format: "hyperspy"
+    size_mb: 0.0  # Will be calculated automatically
+    shape: [0, 0, 0]  # Will be calculated automatically
+    dtype: "float32"
+  ground_truth:
+    path: "ground_truth/volume.hspy"
+    format: "hyperspy"
+    size_mb: 0.0  # Will be calculated automatically
+    available: true
+    shape: [0, 0, 0]  # Will be calculated automatically
+  tilt_angles:
+    path: "raw/tilt_angles.txt"
+    format: "txt"
+    columns: ["tilt_angle"]
+
+# Experimental parameters
+experimental_parameters:
+  pixel_size: 0.1  # nm (default, update if known)
+  tilt_range: [-60, 60]  # degrees (default, update if known)
+  tilt_step: 2.0  # degrees (default, update if known)
+  num_projections: 0  # Will be calculated from tilt_series
+  tilt_axis: "single"
+  acceleration_voltage: 300  # kV (default)
+  defocus: -2.0  # nm (default)
+  dose_per_angle: 1.5  # e-/Å² (default)
+
+# Sample information
+sample:
+  type: "test"
+  material: "Unknown"
+  size_nm: [0, 0, 0]  # Update if known
+  description: "Test dataset for ET-dflow framework"
+
+# Quality metrics (will be auto-calculated)
+quality_metrics:
+  snr: 0.0  # Will be calculated
+  contrast: 0.0  # Will be calculated
+  missing_wedge_angle: 120.0  # Estimated from tilt_range
+  data_completeness: 0.0  # Will be calculated
+  resolution_estimate: 0.0  # Will be calculated
+
+# Algorithm challenges (auto-calculated)
+algorithm_challenges:
+  missing_wedge_severity: "medium"
+  noise_level: "medium"
+  structural_complexity: "medium"
+
+# Citation information
+citation:
+  authors: ["ET-dflow Team"]
+  publication: "ET-dflow Benchmark Framework"
+  doi: ""
+  license: "MIT"
+
+# Creation information
+created:
+  date: "2024-01-15"
+  creator: "ET-dflow Framework"
+  source: "Simulation"
+  checksum: ""  # Will be calculated
+

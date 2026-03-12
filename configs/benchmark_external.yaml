@@ -1,0 +1,122 @@
+# External Algorithms Benchmark Configuration
+# ============================================
+# This configuration uses pre-built Docker images from registry.dp.tech
+#
+# Prerequisites:
+#   1. Ensure Kubernetes cluster can access registry.dp.tech
+#   2. Configure imagePullSecrets if authentication is required:
+#      kubectl create secret docker-registry regcred \
+#        --docker-server=registry.dp.tech \
+#        --docker-username=<username> \
+#        --docker-password=<password>
+#   3. Verify images are accessible:
+#      docker pull registry.dp.tech/davinci/genfire-python:20260110195114
+#
+# Usage:
+#   et-dflow benchmark configs/benchmark_external.yaml
+
+# Dataset Configuration
+datasets:
+  test_dataset_v1:
+    path: "./data/datasets/simulated/test_dataset_v1"
+    tilt_series: "raw/tilt_series.hspy"
+    format: "hyperspy"
+
+# Algorithms Configuration
+# -------------------------
+# Using external Docker images from registry.dp.tech
+# Each algorithm may need custom command templates or adapter scripts
+# if they don't follow the standard /app/run_algorithm.py interface
+
+algorithms:
+  genfire:
+    enabled: true
+    docker_image: "registry.dp.tech/davinci/genfire-python:20260110195114"
+    # If the image doesn't have /app/run_algorithm.py, you can use:
+    # command_template: "python -c \"import genfire; ...\""
+    # or create an adapter script
+    parameters:
+      iterations: 100
+      oversampling_ratio: 1.5
+    resources:
+      cpu: 4
+      memory: "8Gi"
+      gpu: false
+  
+  deepdewedge:
+    enabled: false  # Set to true to enable
+    docker_image: "registry.dp.tech/davinci/deepdewedge:20260113145259"
+    # DeepDeWedge uses 'ddw' command, may need custom command template
+    # command_template: "ddw --input {input} --output {output}"
+    parameters:
+      iterations: 50
+    resources:
+      cpu: 4
+      memory: "16Gi"
+      gpu: 1  # DeepDeWedge requires GPU
+  
+  tigre:
+    enabled: false  # Set to true to enable
+    docker_image: "registry.dp.tech/davinci/tigre:20260113153441"
+    # TIGRE uses Python 'tigre' module, may need adapter script
+    parameters:
+      iterations: 30
+    resources:
+      cpu: 4
+      memory: "8Gi"
+      gpu: 1  # TIGRE requires CUDA/GPU
+  
+  isonet:
+    enabled: false  # Set to true to enable
+    docker_image: "registry.dp.tech/davinci/isonet:20260113153511"
+    # IsoNet uses 'isonet.py' command, may need custom command template
+    # command_template: "isonet.py --input {input} --output {output}"
+    parameters:
+      # IsoNet-specific parameters
+    resources:
+      cpu: 4
+      memory: "16Gi"
+      gpu: 1  # Deep learning model requires GPU
+  
+  wucon:
+    enabled: false  # Set to true to enable
+    docker_image: "registry.dp.tech/davinci/wucon:20260113160259"
+    # WUCon source in /opt/wucon/src, may need adapter script
+    parameters:
+      # WUCon-specific parameters
+    resources:
+      cpu: 4
+      memory: "8Gi"
+      gpu: 1
+  
+  astra:
+    enabled: false  # Set to true to enable
+    docker_image: "registry.dp.tech/davinci/astra-toolbox:20260113161211"
+    # ASTRA uses Python 'astra' module, may need adapter script
+    parameters:
+      iterations: 30
+    resources:
+      cpu: 4
+      memory: "8Gi"
+      gpu: 1  # ASTRA supports GPU acceleration
+
+# Evaluation Configuration
+evaluation:
+  metrics:
+    - "psnr"  # Peak Signal-to-Noise Ratio (requires ground truth)
+    - "ssim"  # Structural Similarity Index (requires ground truth)
+    - "mse"   # Mean Squared Error (requires ground truth)
+  ground_truth_path: "./data/datasets/simulated/test_dataset_v1/ground_truth/volume.hspy"
+
+# Workflow Configuration
+workflow:
+  name: "external-algorithms-benchmark"
+  type: "baseline_benchmark"
+  output_dir: "./results/external_test"
+
+# dflow Configuration (Optional)
+# Can also be set via environment variables
+dflow:
+  host: "http://localhost:2746"  # dflow server host URL
+  namespace: "argo"  # Kubernetes namespace
+

@@ -1,0 +1,32 @@
+# ET-dflow Environment Configuration Template
+# Copy this file to .env and update with your actual values
+
+# Docker配置
+DOCKER_REGISTRY=localhost
+# DOCKER_USERNAME=
+# DOCKER_PASSWORD=
+
+# dflow配置
+DFLOW_HOST=http://localhost:2746
+DFLOW_NAMESPACE=default
+
+# Kubernetes配置（如果使用）
+# K8S_API_SERVER=
+
+# 资源默认值（可选）
+DEFAULT_CPU=2
+DEFAULT_MEMORY=4Gi
+DEFAULT_GPU=0
+
+# 日志配置（可选）
+LOG_LEVEL=INFO
+LOG_FORMAT=json
+
+# 环境设置
+ENVIRONMENT=dev
+
+# 存储设置（可选）
+# CACHE_DIR=.cache
+# OUTPUT_DIR=./output
+# METRICS_PORT=8000
+

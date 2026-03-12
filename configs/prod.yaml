@@ -1,0 +1,26 @@
+# Production environment configuration
+# Overrides base.yaml settings for production
+
+dflow:
+  host: "${DFLOW_HOST}"
+  namespace: "${DFLOW_NAMESPACE}"
+
+logging:
+  level: "INFO"
+  format: "json"
+
+cache:
+  enabled: true
+  ttl_seconds: 86400  # 24 hours
+
+output:
+  base_path: "${OUTPUT_PATH}"
+  save_intermediate: false
+
+resources:
+  max_parallel_algorithms: 8  # Higher for production
+
+monitoring:
+  enabled: true
+  enable_tracing: true
+

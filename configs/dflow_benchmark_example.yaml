@@ -1,0 +1,90 @@
+# dflow Workflow Configuration Example
+# ======================================
+# This configuration file is used to run benchmarks using dflow workflow.
+# All algorithms are executed in Docker containers managed by dflow/Kubernetes.
+#
+# Usage:
+#   et-dflow benchmark configs/dflow_benchmark_example.yaml
+#
+# Prerequisites:
+#   1. dflow server running and accessible
+#   2. Kubernetes cluster configured
+#   3. Docker images built for all algorithms (see docker/ directory)
+#   4. Dataset files available at specified paths
+
+# Dataset Configuration
+# ---------------------
+# Define the input dataset(s) for the benchmark.
+# Multiple datasets can be specified, but currently only the first one is used.
+datasets:
+  test_dataset_v1:
+    path: "./data/datasets/simulated/test_dataset_v1"  # Path to dataset directory
+    tilt_series: "raw/tilt_series.hspy"  # Relative path to tilt series from dataset root
+    format: "hyperspy"  # File format: hyperspy, mrc, tiff, h5
+
+# Algorithms Configuration
+# -------------------------
+# Define which algorithms to run and their configurations.
+# ⚠️ IMPORTANT: Each algorithm MUST have a docker_image specified.
+# The docker_image must be built and available in your Docker registry.
+#
+# To build Docker images:
+#   docker build -f docker/algorithms/wbp/Dockerfile -t et-dflow/wbp:latest .
+algorithms:
+  wbp:
+    enabled: true  # Set to false to skip this algorithm
+    docker_image: "et-dflow/wbp:latest"  # ⭐ REQUIRED: Docker image name
+    parameters:  # Algorithm-specific parameters
+      filter_type: "ramp"  # Filter type for WBP
+      interpolation: "linear"  # Interpolation method
+    resources:  # Kubernetes resource requirements (optional)
+      cpu: 2  # Number of CPU cores
+      memory: "4Gi"  # Memory limit (e.g., "4Gi", "8G")
+      gpu: 0  # Number of GPUs (0 = no GPU)
+  
+  # Example: Add more algorithms
+  # Uncomment and configure as needed:
+  # sirt:
+  #   enabled: true
+  #   docker_image: "et-dflow/sirt:latest"  # ⭐ REQUIRED
+  #   parameters:
+  #     iterations: 30
+  #     relaxation_factor: 0.5
+  #   resources:
+  #     cpu: 4
+  #     memory: "8Gi"
+  #     gpu: 0
+
+# Evaluation Configuration
+# -------------------------
+# Define evaluation metrics to calculate.
+# Some metrics require ground truth data.
+evaluation:
+  metrics:  # List of metrics to calculate
+    - "psnr"  # Peak Signal-to-Noise Ratio (requires ground truth)
+    - "ssim"  # Structural Similarity Index (requires ground truth)
+    - "mse"   # Mean Squared Error (requires ground truth)
+  ground_truth_path: "./data/datasets/simulated/test_dataset_v1/ground_truth/volume.hspy"  # Optional: Path to ground truth
+
+# Workflow Configuration
+# ----------------------
+# Configure the dflow workflow execution.
+workflow:
+  name: "multi-algorithm-benchmark"  # Workflow name (visible in dflow UI)
+  type: "baseline_benchmark"  # Workflow type
+  output_dir: "./results"  # Output directory for results
+  # Optional: runner_image for data-preparation and evaluation steps (must have et-dflow + hyperspy).
+  # If unset, dflow may use dispatcher default or local execution (e.g. debug mode).
+  # runner_image: "et-dflow/runner:latest"
+
+# dflow Configuration (Optional)
+# ------------------------------
+# These settings can also be set via environment variables:
+#   DFLOW_HOST=http://localhost:2746
+#   DFLOW_NAMESPACE=argo
+#
+# If not specified here, defaults from environment or config will be used.
+dflow:
+  host: "http://localhost:2746"  # dflow server host URL
+  namespace: "argo"  # Kubernetes namespace for workflow execution
+
