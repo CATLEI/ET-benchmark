@@ -13,9 +13,6 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy algorithm code
-COPY algorithms/sirt/ ./algorithms/sirt/
-
 FROM python:3.11-slim
 
 WORKDIR /app

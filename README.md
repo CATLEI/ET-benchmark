@@ -43,15 +43,10 @@ pip install -e .
 
 ## Quick Start
 
-### Remote Cluster Mode
+### Remote and Hybrid Modes
 
-ET-dflow currently targets **remote cluster mode only**:
-
-1. Run the CLI on a master VM.
-2. Submit the workflow to Argo through dflow.
-3. Execute steps on Kubernetes worker nodes.
-4. Store intermediate artifacts in MinIO/S3.
-5. Download the final packaged results back to local `results/<time>/`.
+- **Remote mode**: All steps (data prep, algorithm, evaluation, comparison, export) run in remote containers. Requires `workflow.runner_image` and algorithm `docker_image`.
+- **Hybrid mode**: Set `workflow.execution_mode: "hybrid"`. Data preparation and evaluation run on the master node; only the algorithm step runs in a remote container. **No `runner_image` needed** — only the algorithm image (e.g. WBP) must be in a cluster-accessible registry. Use `configs/wbp_hybrid_benchmark.yaml` as a template.
 
 Minimal benchmark config:
 
@@ -76,6 +71,7 @@ workflow:
   name: "tomo-01-benchmark"
   type: "baseline_benchmark"
   output_dir: "./results"
+  # Omit runner_image when using execution_mode: "hybrid"
   runner_image: "registry.example.com/et-dflow/runner:latest"
 
 dflow:
@@ -635,6 +631,11 @@ python --version
 - `--input`
 - `--output`
 - `--config`
+
+如果你已经完成 `wbp` 镜像构建，并且希望从主节点提交任务、由远端 worker 拉起该镜像执行，再把结果导回主节点，可直接参考：
+
+- `configs/wbp_remote_benchmark.yaml`
+- `docs/WBP_MASTER_NODE_RUN.md`
 
 DeepDeWedge、TIGRE、IsoNet、WUCon、ASTRA 等使用外部镜像，无需本仓库构建；见 configs/algorithms.yaml 与 [External Docker Images](docs/EXTERNAL_DOCKER_IMAGES_INTEGRATION.md)。
 

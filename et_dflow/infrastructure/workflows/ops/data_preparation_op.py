@@ -31,7 +31,9 @@ class DataPreparationOP(OP):
             "dataset_path": Artifact(str),
             "dataset_format": Parameter(str, default="hyperspy"),
             "ground_truth_path": Artifact(str, optional=True),
+            "preprocessing_config": Artifact(str, optional=True),
             "preprocessing_steps": Parameter(list, default=None),
+            "preprocessing_evaluation_config": Parameter(dict, default=None),
             "metadata": Parameter(dict, default={}),
             "prepared_data": Parameter(str, default="/tmp/prepared_data.hspy"),
         })
@@ -42,6 +44,8 @@ class DataPreparationOP(OP):
         return OPIO({
             "prepared_data": Artifact(str),
             "ground_truth": Artifact(str, optional=True),
+            "alignment_output": Artifact(str, optional=True),
+            "denoising_output": Artifact(str, optional=True),
             "metadata": Parameter(dict),
         })
     
@@ -63,8 +67,16 @@ class DataPreparationOP(OP):
         dataset_path = op_in["dataset_path"]
         dataset_format = op_in.get("dataset_format", "hyperspy")
         ground_truth_path = op_in.get("ground_truth_path")
-        preprocessing_steps = op_in.get("preprocessing_steps")
         metadata = op_in.get("metadata", {})
+        preprocessing_steps = op_in.get("preprocessing_steps")
+        preprocessing_evaluation_config = op_in.get("preprocessing_evaluation_config") or {}
+        config_path = op_in.get("preprocessing_config")
+        if config_path and os.path.exists(config_path):
+            import json
+            with open(config_path, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+            preprocessing_steps = cfg.get("preprocessing_steps", preprocessing_steps)
+            preprocessing_evaluation_config = cfg.get("preprocessing_evaluation_config", preprocessing_evaluation_config)
         
         try:
             # Initialize factory and preprocessor
@@ -89,9 +101,23 @@ class DataPreparationOP(OP):
                 loader = factory.create_loader(dataset_path)
                 signal = loader.load(dataset_path)
             
-            # Apply preprocessing
+            # Apply preprocessing (optionally save intermediates for evaluation)
+            save_after_steps = (preprocessing_evaluation_config or {}).get("save_after_steps")
+            save_dir = "/tmp/prep_intermediates" if save_after_steps else None
             if preprocessing_steps:
-                signal = preprocessor.preprocess(signal, preprocessing_steps)
+                result = preprocessor.preprocess(
+                    signal,
+                    preprocessing_steps,
+                    save_after_steps=save_after_steps,
+                    save_dir=save_dir,
+                )
+                if isinstance(result, tuple):
+                    signal, intermediates = result
+                else:
+                    signal = result
+                    intermediates = {}
+            else:
+                intermediates = {}
             
             # Enrich metadata (Hyperspy metadata is DictionaryTreeBrowser, use set_item not update)
             for k, v in (metadata or {}).items():
@@ -138,11 +164,16 @@ class DataPreparationOP(OP):
                 gt_signal.save(gt_output_path)
                 output_metadata["ground_truth_path"] = gt_output_path
             
-            return OPIO({
+            out = {
                 "prepared_data": output_path,
                 "ground_truth": gt_output_path,
                 "metadata": output_metadata,
-            })
+            }
+            if intermediates.get("alignment"):
+                out["alignment_output"] = intermediates["alignment"]
+            if intermediates.get("denoising"):
+                out["denoising_output"] = intermediates["denoising"]
+            return OPIO(out)
         except Exception as e:
             raise DataError(
                 f"Data preparation failed: {e}",

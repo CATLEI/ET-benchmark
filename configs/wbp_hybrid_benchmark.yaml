@@ -1,0 +1,55 @@
+# WBP hybrid benchmark: data prep and evaluation on master, only WBP runs in remote container
+# --------------------------------------------------------------------------------------------
+# Usage:
+#   et-dflow benchmark configs/wbp_hybrid_benchmark.yaml --output-dir ./results
+#
+# No runner_image needed. Fill in dataset path, wbp docker_image, and dflow/S3 settings.
+
+datasets:
+  tomo_sample:
+    path: "E:/data/et/sample_01/raw/tilt_series.mrc"
+    format: "mrc"
+    ground_truth_path: "E:/data/et/sample_01/raw/ground_truth.hspy"
+
+algorithms:
+  wbp:
+    enabled: true
+    docker_image: "registry.example.com/et-dflow/wbp:bohr"
+    parameters:
+      filter_type: "ramp"
+      filter_cutoff: 1.0
+    resources:
+      cpu: 2
+      memory: "4Gi"
+      gpu: false
+
+evaluation:
+  metrics:
+    - "psnr"
+    - "ssim"
+    - "mse"
+
+workflow:
+  name: "wbp-hybrid-benchmark"
+  type: "baseline_benchmark"
+  output_dir: "./results"
+  execution_mode: "hybrid"
+  # runner_image not used in hybrid mode
+
+# dflow 配置 (玻尔空间站 / Bohr Space Station)
+# 参考: https://space.bohrium.cn 工作流提交配置
+dflow:
+  mode: "remote"
+  host: "http://workflows.deepmodeling.com"
+  k8s_api_server: "http://workflows.deepmodeling.com"
+  namespace: "argo"
+  token: ""
+
+  # Bohr 存储 (oss-bohrium + TiefblueClient)
+  s3_repo_key: "oss-bohrium"
+  s3_storage_client: "dflow.plugins.bohrium.TiefblueClient"
+  # 推荐使用环境变量，避免密码明文：export BOHRIUM_USERNAME=... BOHRIUM_PASSWORD=... BOHRIUM_PROJECT_ID=...
+  # 若使用 YAML，填写真实值；留空或占位符时将从环境变量读取，未设置则交互式输入
+  bohrium_username: ""   # 或填邮箱，也可用 BOHRIUM_USERNAME
+  bohrium_password: ""   # 建议用 BOHRIUM_PASSWORD 环境变量
+  bohrium_project_id: "" # 项目 ID（数字），也可用 BOHRIUM_PROJECT_ID

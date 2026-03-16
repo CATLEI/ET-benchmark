@@ -1,4 +1,4 @@
-# Dockerfile for building the WBP image on Bohr Station.
+# Dockerfile for building the SIRT image on Bohr Station.
 #
 # Bohr currently does not support copying local workspace files into the image
 # build context, so this Dockerfile pulls the ET-dflow repository during build.
@@ -11,10 +11,10 @@
 #
 # Example:
 #   docker build \
-#     -f docker/algorithms/wbp/Dockerfile.bohr \
+#     -f docker/algorithms/sirt/Dockerfile.bohr \
 #     --build-arg ET_DFLOW_REPO_URL=https://github.com/your-org/ET-dflow.git \
 #     --build-arg ET_DFLOW_REPO_REF=main \
-#     -t et-dflow/wbp:bohr .
+#     -t et-dflow/sirt:bohr .
 
 FROM docker.1ms.run/python:3.10-slim AS builder
 
@@ -50,8 +50,8 @@ RUN pip install --no-cache-dir --timeout 300 \
     -i https://pypi.tuna.tsinghua.edu.cn/simple --no-deps .
 
 # Prepare runtime entrypoint assets in stable locations for the final stage.
-RUN cp docker/algorithms/wbp/run_algorithm.py /tmp/run_algorithm.py && \
-    cp docker/algorithms/wbp/docker-entrypoint.sh /tmp/docker-entrypoint.sh && \
+RUN cp docker/algorithms/sirt/run_algorithm.py /tmp/run_algorithm.py && \
+    cp docker/algorithms/sirt/docker-entrypoint.sh /tmp/docker-entrypoint.sh && \
     chmod +x /tmp/docker-entrypoint.sh
 
 FROM docker.1ms.run/python:3.10-slim

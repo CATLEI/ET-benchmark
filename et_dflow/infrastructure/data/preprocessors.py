@@ -4,10 +4,8 @@ Data preprocessing implementation.
 Provides comprehensive data preprocessing for ET tilt series.
 """
 
-from typing import List, Optional, TYPE_CHECKING
-import numpy as np
-from scipy import ndimage
-from scipy.ndimage import gaussian_filter
+import os
+from typing import List, Optional, Tuple, Dict, Any, Union, TYPE_CHECKING
 
 if TYPE_CHECKING:
     import hyperspy.api as hs
@@ -18,6 +16,80 @@ else:
 
 from et_dflow.core.interfaces import IPreprocessor
 from et_dflow.core.exceptions import DataError
+
+# Populate registry with all step implementations
+def _ensure_registry_loaded():
+    try:
+        from et_dflow.infrastructure.data.preprocessing import steps  # noqa: F401
+    except Exception:
+        pass
+
+
+def _run_step(step_name: str, step_params: Dict[str, Any], signal: Signal) -> Signal:
+    """Execute a single step via registry or legacy fallback."""
+    _ensure_registry_loaded()
+    from et_dflow.infrastructure.data.preprocessing.registry import get
+    methods = step_params.get("methods")
+    if isinstance(methods, list):
+        current = signal
+        for m in methods:
+            method = m if isinstance(m, str) else str(m)
+            fn = get(step_name, method=method)
+            if fn is None:
+                raise DataError(
+                    f"Unknown method '{method}' for step '{step_name}'",
+                    details={"step": step_name, "method": method}
+                )
+            current = fn(current, step_params)
+        return current
+    method = step_params.get("method")
+    fn = get(step_name, method=method)
+    if fn is not None:
+        return fn(signal, step_params)
+    raise DataError(
+        f"Unknown preprocessing step: {step_name}",
+        details={"step": step_name}
+    )
+
+
+def normalize_preprocessing_steps(
+    steps: Optional[List[Union[str, Dict[str, Any]]]]
+) -> List[Tuple[str, Dict[str, Any]]]:
+    """
+    Normalize preprocessing steps to a list of (name, params).
+
+    Accepts:
+        - List of strings: ["alignment", "normalization"] -> [("alignment", {}), ...]
+        - List of dicts: [{"name": "alignment", "params": {"method": "cc"}}] or
+          [{"name": "alignment", "method": "cc"}] (kwargs merged into params)
+
+    Returns:
+        List of (step_name, step_params).
+    """
+    if not steps:
+        return []
+    result = []
+    for item in steps:
+        if isinstance(item, str):
+            result.append((item, {}))
+        elif isinstance(item, dict):
+            name = item.get("name")
+            if not name:
+                raise DataError(
+                    "Preprocessing step dict must have 'name'",
+                    details={"item": item}
+                )
+            params = dict(item.get("params", {}))
+            for k, v in item.items():
+                if k not in ("name", "params"):
+                    params[k] = v
+            result.append((name, params))
+        else:
+            raise DataError(
+                f"Preprocessing step must be str or dict, got {type(item)}",
+                details={"item": item}
+            )
+    return result
 
 
 class DataPreprocessor(IPreprocessor):
@@ -34,229 +106,56 @@ class DataPreprocessor(IPreprocessor):
     def preprocess(
         self,
         tilt_series: Signal,
-        steps: Optional[List[str]] = None
-    ) -> Signal:
+        steps: Optional[List[Union[str, Dict[str, Any]]]] = None,
+        save_after_steps: Optional[List[str]] = None,
+        save_dir: Optional[str] = None,
+    ):
         """
         Apply preprocessing steps.
-        
+
         Args:
             tilt_series: Input tilt series
-            steps: List of preprocessing steps to apply.
-                  If None, apply all default steps.
-                  Available steps: 'alignment', 'normalization',
-                  'bad_pixels', 'drift'
-        
+            steps: List of step names (str) or step descriptors (dict with
+                   'name' and optional 'params' / kwargs). If None, apply
+                   default steps.
+            save_after_steps: If set, save signal after each of these step names.
+            save_dir: Directory to write intermediate artifacts (required if save_after_steps).
+
         Returns:
-            Preprocessed tilt series
-        
-        Raises:
-            DataError: If preprocessing fails
+            If save_after_steps is None: processed Signal.
+            Else: (processed_signal, intermediates_dict) where intermediates_dict
+                  maps step_name -> path to saved .hspy file.
         """
         if steps is None:
             steps = ["alignment", "normalization", "bad_pixels", "drift"]
-        
+        normalized = normalize_preprocessing_steps(steps)
+        save_after = (save_after_steps or []) if save_after_steps else []
+        intermediates: Dict[str, str] = {}
+        if save_after and save_dir:
+            os.makedirs(save_dir, exist_ok=True)
+
         processed = tilt_series.deepcopy()
-        
+
         try:
-            for step in steps:
-                if step == "alignment":
-                    processed = self._align_tilt_series(processed)
-                elif step == "normalization":
-                    processed = self._normalize_contrast(processed)
-                elif step == "bad_pixels":
-                    processed = self._remove_bad_pixels(processed)
-                elif step == "drift":
-                    processed = self._correct_drift(processed)
-                else:
-                    raise DataError(
-                        f"Unknown preprocessing step: {step}",
-                        details={"step": step, "available_steps": [
-                            "alignment", "normalization", "bad_pixels", "drift"
-                        ]}
-                    )
-            
-            # Update metadata
-            processed.metadata.set_item("preprocessing_steps", steps)
-            
+            for step_name, step_params in normalized:
+                processed = _run_step(step_name, step_params, processed)
+                if step_name in save_after and save_dir:
+                    path = os.path.join(save_dir, f"after_{step_name}.hspy")
+                    processed.save(path)
+                    intermediates[step_name] = path
+
+            processed.metadata.set_item(
+                "preprocessing_steps",
+                [name for name, _ in normalized]
+            )
+            if save_after and save_dir:
+                return processed, intermediates
             return processed
+        except DataError:
+            raise
         except Exception as e:
             raise DataError(
                 f"Error during preprocessing: {e}",
-                details={"error": str(e), "steps": steps}
+                details={"error": str(e), "steps": normalized}
             ) from e
-    
-    def _align_tilt_series(
-        self,
-        tilt_series: Signal,
-        method: str = "cross_correlation"
-    ) -> Signal:
-        """
-        Align tilt series images.
-        
-        Methods:
-        - 'cross_correlation': Cross-correlation based alignment
-        - 'feature_matching': Feature-based alignment
-        - 'fiducial_markers': Fiducial marker-based alignment
-        
-        Args:
-            tilt_series: Input tilt series
-            method: Alignment method
-        
-        Returns:
-            Aligned tilt series
-        """
-        if method == "cross_correlation":
-            return self._align_cross_correlation(tilt_series)
-        elif method == "feature_matching":
-            return self._align_feature_matching(tilt_series)
-        else:
-            # Default to cross-correlation
-            return self._align_cross_correlation(tilt_series)
-    
-    def _align_cross_correlation(self, tilt_series: Signal) -> Signal:
-        """
-        Align using cross-correlation.
-        
-        Args:
-            tilt_series: Input tilt series
-        
-        Returns:
-            Aligned tilt series
-        """
-        data = tilt_series.data.copy()
-        n_images = data.shape[0]
-        
-        # Use first image as reference
-        reference = data[0]
-        
-        aligned_data = np.zeros_like(data)
-        aligned_data[0] = reference
-        
-        for i in range(1, n_images):
-            # Calculate cross-correlation
-            from scipy.signal import correlate2d
-            correlation = correlate2d(
-                reference, data[i], mode="full"
-            )
-            
-            # Find peak (shift)
-            peak = np.unravel_index(
-                np.argmax(correlation), correlation.shape
-            )
-            
-            # Calculate shift
-            shift = (
-                peak[0] - reference.shape[0] + 1,
-                peak[1] - reference.shape[1] + 1
-            )
-            
-            # Apply shift
-            aligned_data[i] = ndimage.shift(data[i], shift, mode="constant")
-        
-        # Create aligned signal
-        aligned = tilt_series.deepcopy()
-        aligned.data = aligned_data
-        
-        return aligned
-    
-    def _align_feature_matching(self, tilt_series: Signal) -> Signal:
-        """
-        Align using feature matching (placeholder for future implementation).
-        
-        Args:
-            tilt_series: Input tilt series
-        
-        Returns:
-            Aligned tilt series (currently returns original)
-        """
-        # TODO: Implement feature-based alignment
-        # For now, return original
-        return tilt_series
-    
-    def _normalize_contrast(
-        self,
-        tilt_series: Signal,
-        method: str = "histogram_equalization"
-    ) -> Signal:
-        """
-        Normalize contrast across tilt series.
-        
-        Args:
-            tilt_series: Input tilt series
-            method: Normalization method
-        
-        Returns:
-            Contrast-normalized tilt series
-        """
-        data = tilt_series.data.copy()
-        
-        if method == "histogram_equalization":
-            # Simple histogram equalization
-            normalized_data = np.zeros_like(data)
-            
-            for i in range(data.shape[0]):
-                image = data[i]
-                # Normalize to [0, 1]
-                image_min = image.min()
-                image_max = image.max()
-                if image_max > image_min:
-                    normalized = (image - image_min) / (image_max - image_min)
-                else:
-                    normalized = image
-                normalized_data[i] = normalized
-            
-            normalized = tilt_series.deepcopy()
-            normalized.data = normalized_data
-            return normalized
-        else:
-            return tilt_series
-    
-    def _remove_bad_pixels(
-        self,
-        tilt_series: Signal,
-        method: str = "median_filter"
-    ) -> Signal:
-        """
-        Remove bad pixels (dead pixels, hot pixels, etc.).
-        
-        Args:
-            tilt_series: Input tilt series
-            method: Bad pixel removal method
-        
-        Returns:
-            Tilt series with bad pixels removed
-        """
-        data = tilt_series.data.copy()
-        
-        if method == "median_filter":
-            # Apply median filter to remove outliers
-            cleaned_data = np.zeros_like(data)
-            
-            for i in range(data.shape[0]):
-                cleaned_data[i] = ndimage.median_filter(data[i], size=3)
-            
-            cleaned = tilt_series.deepcopy()
-            cleaned.data = cleaned_data
-            return cleaned
-        else:
-            return tilt_series
-    
-    def _correct_drift(
-        self,
-        tilt_series: Signal,
-        method: str = "cross_correlation"
-    ) -> Signal:
-        """
-        Correct sample drift between images.
-        
-        Args:
-            tilt_series: Input tilt series
-            method: Drift correction method
-        
-        Returns:
-            Drift-corrected tilt series
-        """
-        # Similar to alignment, but track cumulative drift
-        # For now, use alignment method
-        return self._align_tilt_series(tilt_series, method=method)
 

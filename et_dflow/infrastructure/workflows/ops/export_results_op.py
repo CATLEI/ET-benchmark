@@ -29,6 +29,7 @@ class ExportResultsOP(OP):
             "comparison_report": Artifact(str),
             "comparison_json": Artifact(str),
             "visualizations": Artifact(str, optional=True),
+            "preprocessing_metrics_file": Artifact(str, optional=True),
         })
 
     @classmethod
@@ -74,6 +75,10 @@ class ExportResultsOP(OP):
         comparison_json = Path(op_in["comparison_json"])
         shutil.copy2(str(comparison_report), str(bundle_root / "comparison_report.html"))
         shutil.copy2(str(comparison_json), str(bundle_root / "comparison_summary.json"))
+
+        preprocessing_metrics = op_in.get("preprocessing_metrics_file")
+        if preprocessing_metrics:
+            shutil.copy2(str(preprocessing_metrics), str(bundle_root / "preprocessing_metrics.json"))
 
         visualizations = op_in.get("visualizations")
         if visualizations:
