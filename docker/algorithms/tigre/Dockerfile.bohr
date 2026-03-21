@@ -1,0 +1,49 @@
+# Build TIGRE + ET-dflow when the builder **cannot COPY local et-dflow** (e.g. Bohr / remote
+# context that only uploads this Dockerfile). Clones ET-dflow from Git during the build.
+#
+# Required build arg:
+#   ET_DFLOW_REPO_URL  - Git URL (https or internal) of the ET-dflow repository
+#
+# Optional:
+#   ET_DFLOW_REPO_REF  - branch, tag, or commit (default: main)
+#   BASE_IMAGE         - upstream TIGRE image (default: registry.dp.tech/.../tigre:...)
+#
+# Example:
+#   docker build -f docker/algorithms/tigre/Dockerfile.bohr \
+#     --build-arg ET_DFLOW_REPO_URL=https://github.com/your-org/ET-dflow.git \
+#     --build-arg ET_DFLOW_REPO_REF=main \
+#     -t et-dflow/tigre:bohr .
+
+ARG BASE_IMAGE=registry.dp.tech/davinci/tigre:20260113153441
+FROM ${BASE_IMAGE}
+
+USER root
+RUN mkdir -p /app
+WORKDIR /tmp/etdflow-build
+
+ARG ET_DFLOW_REPO_URL
+ARG ET_DFLOW_REPO_REF=main
+
+RUN apt-get update && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN test -n "${ET_DFLOW_REPO_URL}" || \
+    (echo "ET_DFLOW_REPO_URL build arg is required for Dockerfile.bohr." >&2 && exit 1)
+
+RUN git clone "${ET_DFLOW_REPO_URL}" repo && \
+    cd repo && \
+    git checkout "${ET_DFLOW_REPO_REF}"
+
+WORKDIR /tmp/etdflow-build/repo
+
+RUN python -m pip install --no-cache-dir -r requirements-etdflow-algorithm.txt && \
+    python -m pip install --no-cache-dir --no-deps .
+
+RUN cp docker/algorithms/tigre/run_algorithm.py /app/run_algorithm.py && \
+    cp docker/algorithms/tigre/docker-entrypoint.sh /app/docker-entrypoint.sh && \
+    chmod +x /app/docker-entrypoint.sh
+
+WORKDIR /app
+
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
+CMD []

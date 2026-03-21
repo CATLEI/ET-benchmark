@@ -1,136 +1,96 @@
 #!/usr/bin/env python
 """
-Adapter script for IsoNet algorithm.
-Converts standard ET-dflow interface to IsoNet-specific interface.
+IsoNet adapter.
 
-This script serves as an adapter template for external Docker images.
-It demonstrates how to bridge the standard ET-dflow interface with
-algorithm-specific APIs.
-
-Usage:
-    python run_algorithm.py --input <input.hspy> --output <output.hspy> --config <json>
+Native mode runs ``isonet_argv`` subprocess then loads output volume; requires
+``isonet_output_volume_path`` or dir+glob. Otherwise uses WBP/SIRT stand-in.
 """
+
+from __future__ import annotations
 
 import argparse
 import json
 import sys
-from pathlib import Path
+import time
 
 try:
-    import hyperspy.api as hs
+    import IsoNet  # noqa: F401
+
+    _HAS_ISONET = True
 except ImportError:
-    print("ERROR: Hyperspy not available", file=sys.stderr)
-    sys.exit(1)
+    _HAS_ISONET = False
 
-# Try to import IsoNet
-try:
-    import IsoNet
-    HAS_ISONET_MODULE = True
-except ImportError:
-    HAS_ISONET_MODULE = False
-    print("WARNING: IsoNet module not available", file=sys.stderr)
-    print("  This adapter requires the IsoNet package", file=sys.stderr)
+from et_dflow.infrastructure.algorithms.docker_entrypoint_io import (
+    load_tilt_series_hspy,
+    print_run_summary,
+    save_algorithm_result,
+)
+from et_dflow.infrastructure.algorithms.placeholder_runner import (
+    run_placeholder_reconstruction,
+)
 
 
-def main():
-    """Main entry point for IsoNet algorithm execution."""
-    parser = argparse.ArgumentParser(
-        description="IsoNet Algorithm Execution (ET-dflow Adapter)"
-    )
-    parser.add_argument(
-        "--input",
-        type=str,
-        required=True,
-        help="Path to input tilt series file (.hspy format)"
-    )
-    parser.add_argument(
-        "--output",
-        type=str,
-        required=True,
-        help="Path to output reconstruction file (.hspy format)"
-    )
-    parser.add_argument(
-        "--config",
-        type=str,
-        required=True,
-        help="JSON string containing algorithm configuration"
-    )
-    
+def main() -> int:
+    parser = argparse.ArgumentParser(description="IsoNet adapter (ET-dflow)")
+    parser.add_argument("--input", type=str, required=True)
+    parser.add_argument("--output", type=str, required=True)
+    parser.add_argument("--config", type=str, required=True)
     args = parser.parse_args()
-    
+
     try:
-        # Parse configuration
         config = json.loads(args.config)
-        
-        # Load input data
-        input_path = Path(args.input)
-        if not input_path.exists():
-            print(f"ERROR: Input file not found: {input_path}", file=sys.stderr)
-            sys.exit(1)
-        
-        print(f"Loading input data from: {input_path}")
-        tilt_series = hs.load(str(input_path))
-        
-        # Ensure we have a Signal2D (tilt series)
-        if not isinstance(tilt_series, hs.signals.Signal2D):
-            print(f"ERROR: Expected Signal2D (tilt series), got {type(tilt_series)}", file=sys.stderr)
-            sys.exit(1)
-        
-        # Extract algorithm parameters from config
-        # IsoNet-specific parameters
-        
-        print(f"Running IsoNet reconstruction...")
-        
-        # TODO: Implement actual IsoNet reconstruction
-        # This is a placeholder - actual implementation depends on IsoNet API
-        # IsoNet uses 'isonet.py' command, may need to call it via subprocess
-        # Example:
-        #   isonet.py --input <input> --output <output> --config <config>
-        
-        # For now, create a placeholder reconstruction
-        print("WARNING: Using placeholder reconstruction. Implement actual IsoNet API call.")
-        
-        # Get tilt series data
-        tilt_data = tilt_series.data  # Shape: (n_tilts, height, width)
-        n_tilts, height, width = tilt_data.shape
-        
-        # Placeholder: simple back-projection (replace with IsoNet)
-        import numpy as np
-        depth = height  # Assume cubic volume
-        reconstruction_data = tilt_data.mean(axis=0)  # Simple average (NOT real IsoNet)
-        reconstruction_data = reconstruction_data[np.newaxis, :, :].repeat(depth, axis=0)
-        
-        # Create reconstruction signal
-        reconstruction = hs.signals.Signal1D(reconstruction_data)
-        reconstruction.metadata.set_item("algorithm", "IsoNet")
-        
-        # Copy relevant metadata from input
-        if hasattr(tilt_series.metadata, "pixel_size"):
-            reconstruction.metadata.set_item("pixel_size", tilt_series.metadata.pixel_size)
-        
-        # Save reconstruction
-        output_path = Path(args.output)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        print(f"Saving reconstruction to: {output_path}")
-        reconstruction.save(str(output_path))
-        
-        print("IsoNet reconstruction completed successfully!")
-        print(f"  Output shape: {reconstruction.data.shape}")
-        
+        tilt_series = load_tilt_series_hspy(args.input)
+        use_native = config.get("use_native", True)
+        has_argv = bool(config.get("isonet_argv"))
+
+        if use_native and _HAS_ISONET and has_argv:
+            try:
+                from et_dflow.infrastructure.algorithms.native_isonet import (
+                    run_isonet_cli,
+                )
+
+                t0 = time.time()
+                result = run_isonet_cli(tilt_series, config, start_time=t0)
+                print("IsoNet CLI step completed.")
+            except Exception as exc:
+                print(
+                    "WARNING: IsoNet native run failed (%s); using placeholder."
+                    % (exc,),
+                    file=sys.stderr,
+                )
+                result = run_placeholder_reconstruction(
+                    tilt_series,
+                    config,
+                    target_algorithm="IsoNet",
+                    reason="native error: %s" % (exc,),
+                )
+        else:
+            if not _HAS_ISONET:
+                reason = "IsoNet package missing in image"
+            elif not use_native:
+                reason = "use_native is false"
+            else:
+                reason = "isonet_argv not set (native needs CLI + output paths)"
+            result = run_placeholder_reconstruction(
+                tilt_series,
+                config,
+                target_algorithm="IsoNet",
+                reason=reason,
+            )
+
+        save_algorithm_result(result, args.output)
+        print_run_summary(result)
         return 0
-        
     except json.JSONDecodeError as e:
-        print(f"ERROR: Invalid JSON configuration: {e}", file=sys.stderr)
-        sys.exit(1)
+        print("ERROR: Invalid JSON configuration: %s" % (e,), file=sys.stderr)
+        return 1
     except Exception as e:
-        print(f"ERROR: Algorithm execution failed: {e}", file=sys.stderr)
+        print("ERROR: Algorithm execution failed: %s" % (e,), file=sys.stderr)
         import traceback
+
         traceback.print_exc()
-        sys.exit(1)
+        return 1
 
 
 if __name__ == "__main__":
-    import numpy as np  # Import here to avoid issues if not available
     sys.exit(main())
-

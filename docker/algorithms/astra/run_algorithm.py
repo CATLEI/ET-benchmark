@@ -1,145 +1,95 @@
 #!/usr/bin/env python
 """
-Adapter script for ASTRA Toolbox algorithm.
-Converts standard ET-dflow interface to ASTRA-specific interface.
+ASTRA Toolbox adapter: native parallel3d SIRT/CGLS when ``astra`` is available.
 
-This script serves as an adapter template for external Docker images.
-It demonstrates how to bridge the standard ET-dflow interface with
-algorithm-specific APIs.
-
-Usage:
-    python run_algorithm.py --input <input.hspy> --output <output.hspy> --config <json>
+``use_native: false`` forces WBP/SIRT stand-in (``placeholder_backend``).
 """
+
+from __future__ import annotations
 
 import argparse
 import json
 import sys
-from pathlib import Path
+import time
 
 try:
-    import hyperspy.api as hs
+    import astra  # noqa: F401
+
+    _HAS_ASTRA = True
 except ImportError:
-    print("ERROR: Hyperspy not available", file=sys.stderr)
-    sys.exit(1)
+    _HAS_ASTRA = False
 
-# Try to import ASTRA
-try:
-    import astra
-    HAS_ASTRA_MODULE = True
-except ImportError:
-    HAS_ASTRA_MODULE = False
-    print("WARNING: ASTRA module not available", file=sys.stderr)
-    print("  This adapter requires the astra Python package", file=sys.stderr)
+from et_dflow.infrastructure.algorithms.docker_entrypoint_io import (
+    load_tilt_series_hspy,
+    print_run_summary,
+    save_algorithm_result,
+)
+from et_dflow.infrastructure.algorithms.placeholder_runner import (
+    run_placeholder_reconstruction,
+)
 
 
-def main():
-    """Main entry point for ASTRA algorithm execution."""
-    parser = argparse.ArgumentParser(
-        description="ASTRA Toolbox Algorithm Execution (ET-dflow Adapter)"
-    )
-    parser.add_argument(
-        "--input",
-        type=str,
-        required=True,
-        help="Path to input tilt series file (.hspy format)"
-    )
-    parser.add_argument(
-        "--output",
-        type=str,
-        required=True,
-        help="Path to output reconstruction file (.hspy format)"
-    )
-    parser.add_argument(
-        "--config",
-        type=str,
-        required=True,
-        help="JSON string containing algorithm configuration"
-    )
-    
+def main() -> int:
+    parser = argparse.ArgumentParser(description="ASTRA adapter (ET-dflow)")
+    parser.add_argument("--input", type=str, required=True)
+    parser.add_argument("--output", type=str, required=True)
+    parser.add_argument("--config", type=str, required=True)
     args = parser.parse_args()
-    
+
     try:
-        # Parse configuration
         config = json.loads(args.config)
-        
-        # Load input data
-        input_path = Path(args.input)
-        if not input_path.exists():
-            print(f"ERROR: Input file not found: {input_path}", file=sys.stderr)
-            sys.exit(1)
-        
-        print(f"Loading input data from: {input_path}")
-        tilt_series = hs.load(str(input_path))
-        
-        # Ensure we have a Signal2D (tilt series)
-        if not isinstance(tilt_series, hs.signals.Signal2D):
-            print(f"ERROR: Expected Signal2D (tilt series), got {type(tilt_series)}", file=sys.stderr)
-            sys.exit(1)
-        
-        # Extract algorithm parameters from config
-        iterations = config.get("iterations", 30)
-        
-        print(f"Running ASTRA reconstruction...")
-        print(f"  Iterations: {iterations}")
-        
-        # TODO: Implement actual ASTRA reconstruction
-        # This is a placeholder - actual implementation depends on ASTRA API
-        # Example structure:
-        #   import astra
-        #   # Create geometry
-        #   proj_geom = astra.create_proj_geom(...)
-        #   vol_geom = astra.create_vol_geom(...)
-        #   # Create algorithm
-        #   alg_id = astra.create_algorithm(...)
-        #   # Run reconstruction
-        #   astra.run(alg_id, iterations)
-        #   reconstruction_data = astra.get(vol_id)
-        
-        # For now, create a placeholder reconstruction
-        print("WARNING: Using placeholder reconstruction. Implement actual ASTRA API call.")
-        
-        # Get tilt series data
-        tilt_data = tilt_series.data  # Shape: (n_tilts, height, width)
-        n_tilts, height, width = tilt_data.shape
-        
-        # Placeholder: simple back-projection (replace with ASTRA)
-        import numpy as np
-        depth = height  # Assume cubic volume
-        reconstruction_data = tilt_data.mean(axis=0)  # Simple average (NOT real ASTRA)
-        reconstruction_data = reconstruction_data[np.newaxis, :, :].repeat(depth, axis=0)
-        
-        # Create reconstruction signal
-        reconstruction = hs.signals.Signal1D(reconstruction_data)
-        reconstruction.metadata.set_item("algorithm", "ASTRA")
-        reconstruction.metadata.set_item("iterations", iterations)
-        
-        # Copy relevant metadata from input
-        if hasattr(tilt_series.metadata, "pixel_size"):
-            reconstruction.metadata.set_item("pixel_size", tilt_series.metadata.pixel_size)
-        
-        # Save reconstruction
-        output_path = Path(args.output)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        print(f"Saving reconstruction to: {output_path}")
-        reconstruction.save(str(output_path))
-        
-        print("ASTRA reconstruction completed successfully!")
-        print(f"  Output shape: {reconstruction.data.shape}")
-        
+        tilt_series = load_tilt_series_hspy(args.input)
+        use_native = config.get("use_native", True)
+
+        if use_native and _HAS_ASTRA:
+            try:
+                from et_dflow.infrastructure.algorithms.native_astra import (
+                    run_astra_parallel3d,
+                )
+
+                t0 = time.time()
+                result = run_astra_parallel3d(
+                    tilt_series, config, start_time=t0
+                )
+                print("ASTRA native reconstruction completed.")
+            except Exception as exc:
+                print(
+                    "WARNING: ASTRA native run failed (%s); using placeholder."
+                    % (exc,),
+                    file=sys.stderr,
+                )
+                result = run_placeholder_reconstruction(
+                    tilt_series,
+                    config,
+                    target_algorithm="ASTRA",
+                    reason="native error: %s" % (exc,),
+                )
+        else:
+            reason = (
+                "astra Python package missing in image"
+                if not _HAS_ASTRA
+                else "use_native is false"
+            )
+            result = run_placeholder_reconstruction(
+                tilt_series,
+                config,
+                target_algorithm="ASTRA",
+                reason=reason,
+            )
+
+        save_algorithm_result(result, args.output)
+        print_run_summary(result)
         return 0
-        
     except json.JSONDecodeError as e:
-        print(f"ERROR: Invalid JSON configuration: {e}", file=sys.stderr)
-        sys.exit(1)
+        print("ERROR: Invalid JSON configuration: %s" % (e,), file=sys.stderr)
+        return 1
     except Exception as e:
-        print(f"ERROR: Algorithm execution failed: {e}", file=sys.stderr)
+        print("ERROR: Algorithm execution failed: %s" % (e,), file=sys.stderr)
         import traceback
+
         traceback.print_exc()
-        sys.exit(1)
+        return 1
 
 
 if __name__ == "__main__":
-    import numpy as np  # Import here to avoid issues if not available
     sys.exit(main())
-

@@ -1,0 +1,77 @@
+# WBP-only remote benchmark config for master-node submission
+# -----------------------------------------------------------
+# Usage:
+#   et-dflow benchmark configs/wbp_remote_benchmark.yaml --output-dir ./results
+#
+# Hybrid mode (no runner_image): data prep, evaluation, comparison run on the master node;
+# only the WBP algorithm runs in a remote container. Set execution_mode: hybrid and omit runner_image.
+#
+# Remote mode: all steps run in remote containers; requires runner_image.
+
+datasets:
+  tomo_sample:
+    # Local path on the master node. This file is uploaded as a dflow artifact (remote) or used for local prep (hybrid).
+    path: "E:/data/et/sample_01/raw/tilt_series.mrc"
+    format: "mrc"
+
+    # Optional ground truth for supervised metrics such as PSNR / SSIM / MSE.
+    ground_truth_path: "E:/data/et/sample_01/raw/ground_truth.hspy"
+
+    # Optional: configurable preprocessing pipeline (order and params).
+    # preprocessing_steps:
+    #   - name: downsample
+    #     params: { factor: 2 }
+    #   - name: background_subtraction
+    #     params: { method: "rolling_ball" }
+    #   - name: alignment
+    #     params: { methods: ["cross_correlation", "tilt_axis"] }
+    #   - name: denoising
+    #     params: { method: "bilateral" }
+    # preprocessing_evaluation:
+    #   save_after_steps: ["alignment", "denoising"]
+    #   alignment_metrics: ["shift_stability", "cross_correlation_peak"]
+    #   denoising_metrics: ["snr_estimate", "local_variance"]
+
+algorithms:
+  wbp:
+    enabled: true
+    docker_image: "registry.example.com/et-dflow/wbp:bohr"
+    parameters:
+      filter_type: "ramp"
+      filter_cutoff: 1.0
+    resources:
+      cpu: 2
+      memory: "4Gi"
+      gpu: false
+
+evaluation:
+  metrics:
+    - "psnr"
+    - "ssim"
+    - "mse"
+
+workflow:
+  name: "wbp-remote-benchmark"
+  type: "baseline_benchmark"
+  output_dir: "./results"
+
+  # Hybrid: data prep and evaluation run on master; only algorithm runs remotely. No runner_image needed.
+  execution_mode: "hybrid"
+  # runner_image: "registry.example.com/et-dflow/runner:latest"  # required only when execution_mode is remote
+
+# dflow 配置 (玻尔空间站 / Bohr Space Station)
+# 参考: https://space.bohrium.cn 工作流提交配置
+dflow:
+  mode: "remote"
+  host: "http://workflows.deepmodeling.com"
+  k8s_api_server: "http://workflows.deepmodeling.com"
+  namespace: "argo"
+  token: ""
+
+  # Bohr 存储 (oss-bohrium + TiefblueClient)
+  s3_repo_key: "oss-bohrium"
+  s3_storage_client: "dflow.plugins.bohrium.TiefblueClient"
+  # 推荐使用环境变量，避免密码明文：export BOHRIUM_USERNAME=... BOHRIUM_PASSWORD=... BOHRIUM_PROJECT_ID=...
+  bohrium_username: ""
+  bohrium_password: ""
+  bohrium_project_id: ""

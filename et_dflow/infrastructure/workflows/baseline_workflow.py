@@ -52,6 +52,8 @@ class BaselineBenchmarkWorkflow:
         self._algorithm_names_list = []
         self._local_prepared_data_path = None
         self._local_ground_truth_path = None
+        self._submitted_workflow = None
+        self._submitted_workflow_id = None
         dflow_section = config.get("dflow") or {}
         configure_dflow(
             dflow_section=dflow_section,
@@ -193,17 +195,20 @@ class BaselineBenchmarkWorkflow:
         if prep_config_artifact is not None:
             data_prep_artifacts["preprocessing_config"] = prep_config_artifact
 
+        # [debug] 打印本侧传入数据准备 step 的内容，便于核对是否把大对象塞进 parameters
+        _prep_params = {
+            "dataset_format": dataset_config.get("format", "hyperspy"),
+            "prepared_data": "/tmp/prepared_data.hspy",
+            "preprocessing_steps": None,
+            "preprocessing_evaluation_config": {},
+        }
+
         data_prep_op = DataPreparationOP()
         data_prep_template = PythonOPTemplate(data_prep_op, image=runner_image)
         data_prep_step = Step(
             name="data-preparation",
             template=data_prep_template,
-            parameters={
-                "dataset_format": dataset_config.get("format", "hyperspy"),
-                "prepared_data": "/tmp/prepared_data.hspy",
-                "preprocessing_steps": None,
-                "preprocessing_evaluation_config": {},
-            },
+            parameters=_prep_params,
             artifacts=data_prep_artifacts,
         )
 
@@ -229,15 +234,17 @@ class BaselineBenchmarkWorkflow:
                     "memory": resources.get("memory", "4Gi"),
                 } if resources else None,
             )
+            # 只传算法参数字段，避免把 enabled/docker_image 等整段 config 塞进 workflow 模板
+            _alg_params = {
+                "algorithm_name": alg_name,
+                "algorithm_config": alg_config.get("parameters", {}),
+                "docker_image": docker_image,
+                "resources": resources,
+            }
             alg_step = Step(
                 name=f"algorithm-{alg_name}",
                 template=alg_template,
-                parameters={
-                    "algorithm_name": alg_name,
-                    "algorithm_config": alg_config.get("parameters", {}),
-                    "docker_image": docker_image,
-                    "resources": resources,
-                },
+                parameters=_alg_params,
                 artifacts={
                     "prepared_data": data_prep_step.outputs.artifacts["prepared_data"],
                 },
@@ -331,6 +338,12 @@ class BaselineBenchmarkWorkflow:
 
         all_steps = steps_before_export + [export_step]
         workflow_name = workflow_config.get("name", "baseline-benchmark")
+        workflow_kwargs = {
+            "name": workflow_name,
+            "steps_name": workflow_name + "-steps",
+            "steps_count": len(all_steps),
+        }
+        print("[et-dflow debug] Workflow(...) args:", workflow_kwargs)
         return Workflow(
             name=workflow_name,
             steps=Steps(name=workflow_name + "-steps", steps=all_steps),
@@ -341,8 +354,13 @@ class BaselineBenchmarkWorkflow:
         """Extract workflow id string from dflow submit return values."""
         if isinstance(workflow_id, list) and workflow_id:
             workflow_id = workflow_id[0]
+        if hasattr(workflow_id, "id"):
+            workflow_id = getattr(workflow_id, "id")
+        if hasattr(workflow_id, "name"):
+            workflow_id = getattr(workflow_id, "name")
         if isinstance(workflow_id, dict):
-            workflow_id = workflow_id.get("id") or workflow_id.get("uid")
+            metadata = workflow_id.get("metadata") if isinstance(workflow_id.get("metadata"), dict) else {}
+            workflow_id = workflow_id.get("id") or workflow_id.get("uid") or metadata.get("name")
         if not workflow_id:
             raise ValueError(f"Invalid workflow id for remote mode: {workflow_id}")
         return str(workflow_id)
@@ -355,8 +373,18 @@ class BaselineBenchmarkWorkflow:
             Workflow ID
         """
         workflow = self.build_workflow()
-        workflow_id = workflow.submit()
-        return self._normalize_workflow_id(workflow_id)
+        # Print only safe, small config summary (no secrets, no full workflow payload).
+        from dflow import config as dflow_config
+        submit_view = {
+            "host": dflow_config.get("host"),
+            "namespace": dflow_config.get("namespace"),
+        }
+        print("[et-dflow debug] submit() input:", submit_view)
+        submit_result = workflow.submit()
+        workflow_id = self._normalize_workflow_id(submit_result)
+        self._submitted_workflow = workflow
+        self._submitted_workflow_id = workflow_id
+        return workflow_id
     
     def wait(self, workflow_id: str, timeout: Optional[int] = None):
         """
@@ -367,7 +395,13 @@ class BaselineBenchmarkWorkflow:
             timeout: Timeout in seconds (reserved; dflow Workflow.wait may not support it in all versions)
         """
         from dflow import Workflow
-        workflow = Workflow(id=self._normalize_workflow_id(workflow_id))
+        wid = self._normalize_workflow_id(workflow_id)
+        print("[et-dflow debug] Workflow.wait() input:", {"id": wid})
+        print("[et-dflow debug] wait: dflow will poll Argo (may trigger 414 on gateway GET URI)")
+        if self._submitted_workflow is not None and self._submitted_workflow_id == wid:
+            workflow = self._submitted_workflow
+        else:
+            workflow = Workflow(id=wid)
         workflow.wait()  # dflow Workflow.wait() does not accept timeout in many versions
 
     def download_results(self, workflow_id: str) -> Path:
@@ -381,7 +415,11 @@ class BaselineBenchmarkWorkflow:
         from tempfile import TemporaryDirectory
         from dflow import Workflow, download_artifact
 
-        workflow = Workflow(id=self._normalize_workflow_id(workflow_id))
+        wid = self._normalize_workflow_id(workflow_id)
+        if self._submitted_workflow is not None and self._submitted_workflow_id == wid:
+            workflow = self._submitted_workflow
+        else:
+            workflow = Workflow(id=wid)
         self._run_output_dir.mkdir(parents=True, exist_ok=True)
 
         if self._hybrid:
@@ -494,6 +532,10 @@ class BaselineBenchmarkWorkflow:
             Workflow status
         """
         from dflow import Workflow
-        workflow = Workflow(id=self._normalize_workflow_id(workflow_id))
+        wid = self._normalize_workflow_id(workflow_id)
+        if self._submitted_workflow is not None and self._submitted_workflow_id == wid:
+            workflow = self._submitted_workflow
+        else:
+            workflow = Workflow(id=wid)
         return workflow.query_status()
 

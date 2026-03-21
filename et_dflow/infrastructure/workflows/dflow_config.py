@@ -106,8 +106,14 @@ def configure_dflow(
             dflow_config["k8s_api_server"] = str(dflow_section["k8s_api_server"])
         if "mode" in dflow_section:
             dflow_config["mode"] = str(dflow_section["mode"])
-        if "token" in dflow_section:
-            dflow_config["token"] = str(dflow_section["token"] or "")
+        # Token: 仅从环境变量 DFLOW_TOKEN 读取，不从 YAML 写入 dflow_config，避免被序列化/日志带出并参与请求
+        if dflow_section.get("token"):
+            import warnings
+            warnings.warn(
+                "dflow.token in config file is ignored for security; set DFLOW_TOKEN environment variable instead.",
+                UserWarning,
+                stacklevel=2,
+            )
         # S3 / MinIO from YAML (map to dflow s3_config keys)
         s3_updates = {}
         if "s3_endpoint" in dflow_section:
@@ -145,8 +151,11 @@ def configure_dflow(
         dflow_config["k8s_api_server"] = k8s_env
     if os.getenv("DFLOW_MODE"):
         dflow_config["mode"] = os.getenv("DFLOW_MODE")
+    # Token 仅从环境变量设置，避免进入配置文件或序列化
     if "DFLOW_TOKEN" in os.environ:
         dflow_config["token"] = os.getenv("DFLOW_TOKEN", "")
+    else:
+        dflow_config["token"] = ""
     if os.getenv("DFLOW_S3_ENDPOINT"):
         set_s3_config(endpoint=os.getenv("DFLOW_S3_ENDPOINT"))
     if os.getenv("DFLOW_S3_CONSOLE"):
@@ -179,6 +188,17 @@ def configure_dflow(
     )
     if use_bohr:
         set_s3_config(endpoint=None, bucket_name=None)
+
+    # [debug] 输出 dflow 配置的安全摘要，便于核对客户端是否正确设置了连接信息。
+    # 不打印 token 内容，避免泄露；只打印 token 长度（0 表示未配置）。
+    debug_view = {
+        "host": dflow_config.get("host"),
+        "namespace": dflow_config.get("namespace"),
+        "mode": dflow_config.get("mode"),
+        "k8s_api_server": dflow_config.get("k8s_api_server"),
+        "token_len": len(dflow_config.get("token") or ""),
+    }
+    print("[et-dflow debug] dflow_config summary:", debug_view)
 
     # 4) Remote cluster mode is the only supported runtime
     if str(dflow_config.get("mode", "remote")).lower() == "debug":

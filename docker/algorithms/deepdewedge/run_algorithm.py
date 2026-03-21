@@ -1,143 +1,105 @@
 #!/usr/bin/env python
 """
-Adapter script for DeepDeWedge algorithm.
-Converts standard ET-dflow interface to DeepDeWedge-specific interface.
+DeepDeWedge adapter.
 
-This script serves as an adapter template for external Docker images.
-It demonstrates how to bridge the standard ET-dflow interface with
-algorithm-specific APIs.
-
-Usage:
-    python run_algorithm.py --input <input.hspy> --output <output.hspy> --config <json>
+Native path runs ``ddw refine-tomogram`` using a YAML path you provide in config
+(``ddw_refine_config_yaml``); it does **not** feed the HyperSpy tilt series into
+``ddw`` automatically. For tilt-series-only benchmarks, leave ``use_native`` false
+or omit ``ddw_refine_config_yaml`` to use the WBP/SIRT stand-in.
 """
+
+from __future__ import annotations
 
 import argparse
 import json
 import sys
-from pathlib import Path
 
 try:
-    import hyperspy.api as hs
+    import ddw  # noqa: F401
+
+    _HAS_DDW = True
 except ImportError:
-    print("ERROR: Hyperspy not available", file=sys.stderr)
-    sys.exit(1)
+    _HAS_DDW = False
 
-# Try to import DeepDeWedge
-# Note: DeepDeWedge uses 'ddw' command, may need to call it via subprocess
-try:
-    import ddw
-    HAS_DDW_MODULE = True
-except ImportError:
-    HAS_DDW_MODULE = False
-    print("WARNING: DeepDeWedge module not available", file=sys.stderr)
-    print("  This adapter requires the DeepDeWedge package", file=sys.stderr)
+from et_dflow.infrastructure.algorithms.docker_entrypoint_io import (
+    load_tilt_series_hspy,
+    print_run_summary,
+    save_algorithm_result,
+)
+from et_dflow.infrastructure.algorithms.placeholder_runner import (
+    run_placeholder_reconstruction,
+)
 
 
-def main():
-    """Main entry point for DeepDeWedge algorithm execution."""
-    parser = argparse.ArgumentParser(
-        description="DeepDeWedge Algorithm Execution (ET-dflow Adapter)"
-    )
-    parser.add_argument(
-        "--input",
-        type=str,
-        required=True,
-        help="Path to input tilt series file (.hspy format)"
-    )
-    parser.add_argument(
-        "--output",
-        type=str,
-        required=True,
-        help="Path to output reconstruction file (.hspy format)"
-    )
-    parser.add_argument(
-        "--config",
-        type=str,
-        required=True,
-        help="JSON string containing algorithm configuration"
-    )
-    
+def main() -> int:
+    parser = argparse.ArgumentParser(description="DeepDeWedge adapter (ET-dflow)")
+    parser.add_argument("--input", type=str, required=True)
+    parser.add_argument("--output", type=str, required=True)
+    parser.add_argument("--config", type=str, required=True)
     args = parser.parse_args()
-    
+
     try:
-        # Parse configuration
         config = json.loads(args.config)
-        
-        # Load input data
-        input_path = Path(args.input)
-        if not input_path.exists():
-            print(f"ERROR: Input file not found: {input_path}", file=sys.stderr)
-            sys.exit(1)
-        
-        print(f"Loading input data from: {input_path}")
-        tilt_series = hs.load(str(input_path))
-        
-        # Ensure we have a Signal2D (tilt series)
-        if not isinstance(tilt_series, hs.signals.Signal2D):
-            print(f"ERROR: Expected Signal2D (tilt series), got {type(tilt_series)}", file=sys.stderr)
-            sys.exit(1)
-        
-        # Extract algorithm parameters from config
-        iterations = config.get("iterations", 50)
-        model_path = config.get("model_path", None)
-        
-        print(f"Running DeepDeWedge reconstruction...")
-        print(f"  Iterations: {iterations}")
-        if model_path:
-            print(f"  Model path: {model_path}")
-        
-        # TODO: Implement actual DeepDeWedge reconstruction
-        # This is a placeholder - actual implementation depends on DeepDeWedge API
-        # DeepDeWedge uses 'ddw' command, example:
-        #   ddw --input <input> --output <output> --iterations <n>
-        
-        # For now, create a placeholder reconstruction
-        print("WARNING: Using placeholder reconstruction. Implement actual DeepDeWedge API call.")
-        
-        # Get tilt series data
-        tilt_data = tilt_series.data  # Shape: (n_tilts, height, width)
-        n_tilts, height, width = tilt_data.shape
-        
-        # Placeholder: simple back-projection (replace with DeepDeWedge)
-        import numpy as np
-        depth = height  # Assume cubic volume
-        reconstruction_data = tilt_data.mean(axis=0)  # Simple average (NOT real DeepDeWedge)
-        reconstruction_data = reconstruction_data[np.newaxis, :, :].repeat(depth, axis=0)
-        
-        # Create reconstruction signal
-        reconstruction = hs.signals.Signal1D(reconstruction_data)
-        reconstruction.metadata.set_item("algorithm", "DeepDeWedge")
-        reconstruction.metadata.set_item("iterations", iterations)
-        if model_path:
-            reconstruction.metadata.set_item("model_path", model_path)
-        
-        # Copy relevant metadata from input
-        if hasattr(tilt_series.metadata, "pixel_size"):
-            reconstruction.metadata.set_item("pixel_size", tilt_series.metadata.pixel_size)
-        
-        # Save reconstruction
-        output_path = Path(args.output)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        print(f"Saving reconstruction to: {output_path}")
-        reconstruction.save(str(output_path))
-        
-        print("DeepDeWedge reconstruction completed successfully!")
-        print(f"  Output shape: {reconstruction.data.shape}")
-        
+        tilt_series = load_tilt_series_hspy(args.input)
+        use_native = config.get("use_native", True)
+        has_yaml = bool(config.get("ddw_refine_config_yaml"))
+
+        if use_native and _HAS_DDW and has_yaml:
+            try:
+                from et_dflow.infrastructure.algorithms.native_deepdewedge import (
+                    run_deepdewedge_refine,
+                )
+
+                import time as _time
+
+                t0 = _time.time()
+                result = run_deepdewedge_refine(
+                    tilt_series, config, start_time=t0
+                )
+                print("DeepDeWedge refine-tomogram completed.")
+            except Exception as exc:
+                print(
+                    f"WARNING: DeepDeWedge native run failed ({exc}); "
+                    "falling back to placeholder.",
+                    file=sys.stderr,
+                )
+                result = run_placeholder_reconstruction(
+                    tilt_series,
+                    config,
+                    target_algorithm="DeepDeWedge",
+                    reason=f"native error: {exc}",
+                )
+        else:
+            if not _HAS_DDW:
+                reason = "ddw package missing in image"
+            elif not use_native:
+                reason = "use_native is false"
+            elif not has_yaml:
+                reason = (
+                    "ddw_refine_config_yaml not set (native refine needs YAML path)"
+                )
+            else:
+                reason = "unknown"
+            result = run_placeholder_reconstruction(
+                tilt_series,
+                config,
+                target_algorithm="DeepDeWedge",
+                reason=reason,
+            )
+
+        save_algorithm_result(result, args.output)
+        print_run_summary(result)
         return 0
-        
     except json.JSONDecodeError as e:
         print(f"ERROR: Invalid JSON configuration: {e}", file=sys.stderr)
-        sys.exit(1)
+        return 1
     except Exception as e:
         print(f"ERROR: Algorithm execution failed: {e}", file=sys.stderr)
         import traceback
+
         traceback.print_exc()
-        sys.exit(1)
+        return 1
 
 
 if __name__ == "__main__":
-    import numpy as np  # Import here to avoid issues if not available
     sys.exit(main())
-

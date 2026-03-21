@@ -14,6 +14,8 @@ A containerized, automated benchmark testing framework for material electron tom
 - **Multi-Format Output**: Save results in both `.hspy` (Hyperspy/ETSpy compatible) and `.npy` (pure array) formats
 - **Artifact-Based Transfer**: Use MinIO/S3-backed dflow artifacts to move prepared data, reconstructions, and metrics between steps
 
+Algorithm Docker images (WBP/SIRT production vs adapter placeholders, `placeholder_backend`, metadata) are documented in **[docs/ALGORITHMS_DOCKER.md](docs/ALGORITHMS_DOCKER.md)**.
+
 ## Installation
 
 ### Python版本要求

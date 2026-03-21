@@ -63,22 +63,27 @@ workflow:
   # It should contain ET-dflow runtime dependencies.
   runner_image: "registry.example.com/et-dflow/runner:latest"
 
+# dflow 配置
+# 玻尔空间站 (Bohr): 使用 s3_repo_key + s3_storage_client + bohrium_*
+# 自建 MinIO: 使用 s3_endpoint + s3_bucket_name + s3_access_key + s3_secret_key
 dflow:
   mode: "remote"
-
-  # Argo / dflow endpoint
-  host: "https://argo.example.com"
+  host: "http://workflows.deepmodeling.com"
+  k8s_api_server: "http://workflows.deepmodeling.com"
   namespace: "argo"
+  token: ""
 
-  # Optional depending on your cluster/network setup
-  k8s_api_server: "https://kubernetes.default.svc"
+  # 玻尔空间站 (Bohr Space Station)，推荐用环境变量 BOHRIUM_USERNAME/PASSWORD/PROJECT_ID 避免密码明文
+  s3_repo_key: "oss-bohrium"
+  s3_storage_client: "dflow.plugins.bohrium.TiefblueClient"
+  bohrium_username: ""
+  bohrium_password: ""
+  bohrium_project_id: ""
 
-  # MinIO / S3 artifact storage
-  s3_endpoint: "http://minio.example.com:9000"
-  s3_bucket_name: "et-dflow"
-  s3_access_key: "replace-with-your-access-key"
-  s3_secret_key: "replace-with-your-secret-key"
-  s3_secure: false
-
-  # Optional console URL for human access
-  s3_console: "http://minio.example.com:9001"
+  # 自建 MinIO (二选一，注释掉 Bohr 相关后启用)
+  # s3_endpoint: "http://minio.example.com:9000"
+  # s3_bucket_name: "et-dflow"
+  # s3_access_key: "replace-with-your-access-key"
+  # s3_secret_key: "replace-with-your-secret-key"
+  # s3_secure: false
+  # s3_console: "http://minio.example.com:9001"

@@ -1,0 +1,13 @@
+# Minimal dependencies for algorithm Docker images layered on third-party bases
+# (avoids installing kubernetes/dflow/plotly into GENFIRE/TIGRE/DeepDeWedge images).
+# Install with: pip install -r requirements-etdflow-algorithm.txt && pip install --no-deps -e .
+
+numpy>=1.20.0
+scipy>=1.7.0
+hyperspy>=1.7.0
+pydantic>=1.10.0
+pydantic-settings>=2.0.0
+pyyaml>=6.0
+psutil>=5.9.0
+mrcfile>=1.4.0
+h5py>=3.7.0
