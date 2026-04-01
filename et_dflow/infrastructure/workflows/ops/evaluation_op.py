@@ -31,6 +31,8 @@ class EvaluationOP(OP):
             "metrics": Parameter(list, default=["psnr", "ssim", "mse"]),
             "algorithm_name": Parameter(str),
             "metrics_file": Parameter(str),  # output path for metrics JSON
+            "dataset_key": Parameter(str, default=""),
+            "suite_metadata": Parameter(dict, default={}),
         })
     
     @classmethod
@@ -60,6 +62,8 @@ class EvaluationOP(OP):
         ground_truth_path = op_in.get("ground_truth")
         metrics = op_in.get("metrics", ["psnr", "ssim", "mse"])
         algorithm_name = op_in["algorithm_name"]
+        dataset_key = (op_in.get("dataset_key") or "").strip()
+        suite_metadata = dict(op_in.get("suite_metadata") or {})
         
         try:
             # Load reconstruction
@@ -93,11 +97,18 @@ class EvaluationOP(OP):
             else:
                 metrics_dict = {}
             
+            meta_out = {
+                **suite_metadata,
+                "dataset_key": dataset_key or None,
+                "track": suite_metadata.get("track"),
+                "variant": suite_metadata.get("variant"),
+            }
             # Create evaluation result
             evaluation_result = EvaluationResult(
                 metrics=metrics_dict,
                 algorithm_name=algorithm_name,
-                metadata={},
+                dataset_name=dataset_key or None,
+                metadata={k: v for k, v in meta_out.items() if v is not None},
             )
             
             # Save results

@@ -29,6 +29,8 @@ class AlgorithmExecutionOP(OP):
             "algorithm_config": Parameter(dict, default={}),
             "docker_image": Parameter(str),
             "resources": Parameter(dict, default={}),
+            "dataset_key": Parameter(str, default=""),
+            "dataset_metadata": Parameter(dict, default={}),
         })
     
     @classmethod
@@ -64,10 +66,13 @@ class AlgorithmExecutionOP(OP):
         algorithm_config = op_in.get("algorithm_config", {})
         docker_image = op_in["docker_image"]
         resources = op_in.get("resources", {})
+        dataset_key = (op_in.get("dataset_key") or "").strip()
+        dataset_metadata = op_in.get("dataset_metadata") or {}
         
         try:
-            # Prepare output paths
-            output_dir = Path("/tmp/output") / algorithm_name
+            # Prepare output paths (unique per dataset × algorithm on shared workers)
+            rel = Path(dataset_key) / algorithm_name if dataset_key else Path(algorithm_name)
+            output_dir = Path("/tmp/output") / rel
             output_dir.mkdir(parents=True, exist_ok=True)
             reconstruction_path = output_dir / "reconstruction.hspy"
             metadata_path = output_dir / "metadata.json"
@@ -162,6 +167,8 @@ class AlgorithmExecutionOP(OP):
             # Create execution metadata
             execution_metadata = {
                 "algorithm": algorithm_name,
+                "dataset_key": dataset_key or None,
+                "dataset_metadata": dataset_metadata,
                 "config": algorithm_config,
                 "docker_image": docker_image,
                 "resources": resources,

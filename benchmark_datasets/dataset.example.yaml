@@ -1,0 +1,24 @@
+# Per-dataset metadata file (lives next to raw data under the track folder).
+# Used for validation / generating ET-dflow benchmark YAML entries.
+#
+# Required by track:
+#   T1-ET-GT: dataset_id, track, tilt_series path, ground_truth path
+#   T2-NoGT:  dataset_id, track, tilt_series path (no ground_truth_path)
+#   T3-Robustness: dataset_id, track, variant, tilt_series path
+#   T4-Scalability: dataset_id, track, tilt_series path; optional scale tags
+#
+# Fields below mirror what you map into et-dflow config `datasets.<key>`:
+
+dataset_id: cryoet_ribo_v1
+track: T1-ET-GT
+variant: null
+
+tilt_series:
+  path: raw/tilt_series.hspy
+  format: hyperspy
+
+ground_truth:
+  path: raw/ground_truth.hspy
+  format: hyperspy
+
+notes: "T2: omit ground_truth. T3: set variant and point path to variants/<variant>/tilt_series.hspy"

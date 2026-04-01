@@ -154,17 +154,28 @@ def benchmark(config_file: str, output_dir: str, verbose: bool, dflow_host: str,
         # Create and submit workflow
         workflow = BaselineBenchmarkWorkflow(config)
         workflow_id = workflow.submit()
-        
-        click.echo(f"[OK] Workflow submitted: {workflow_id}")
-        click.echo(f"Monitor workflow: dflow workflow get {workflow_id}")
-        click.echo(f"Wait for completion: dflow workflow wait {workflow_id}")
+        workflow_ids = workflow_id if isinstance(workflow_id, list) else [workflow_id]
+
+        click.echo(f"[OK] Workflow(s) submitted ({len(workflow_ids)}): {', '.join(workflow_ids)}")
+        for wid in workflow_ids:
+            click.echo(f"  Monitor: dflow workflow get {wid}")
+            click.echo(f"  Wait: dflow workflow wait {wid}")
         if click.confirm("Wait for workflow completion?", default=False):
-            click.echo("Waiting for workflow to complete...")
-            workflow.wait(workflow_id)
-            status = workflow.get_status(workflow_id)
-            click.echo(f"Workflow status: {status}")
-            local_results_dir = workflow.download_results(workflow_id)
-            click.echo(f"Results downloaded to: {local_results_dir}")
+            names = workflow.enabled_algorithm_names
+            if names:
+                click.echo(
+                    "Waiting for workflow(s) to complete "
+                    f"({len(names)} algorithm row(s): {', '.join(names)})..."
+                )
+            else:
+                click.echo("Waiting for workflow(s) to complete...")
+            local_results_dirs = []
+            for wid in workflow_ids:
+                workflow.wait(wid)
+                status = workflow.get_status(wid)
+                click.echo(f"Workflow {wid} status: {status}")
+                local_results_dirs.append(workflow.download_results(wid))
+            click.echo(f"Results downloaded to: {', '.join(str(p) for p in local_results_dirs)}")
         
     except ImportError as e:
         click.echo(f"Error: dflow not available - {e}", err=True)

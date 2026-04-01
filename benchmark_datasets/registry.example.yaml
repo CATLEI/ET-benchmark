@@ -1,0 +1,36 @@
+# Example benchmark registry (data-side layout index).
+# Copy to your data root as registry.yaml and adjust paths.
+#
+# Schema (minimal):
+#   version: int|string — registry format version
+#   tracks: dict[str, TrackEntry]
+#
+# TrackEntry:
+#   description: optional string
+#   datasets: list of dataset ids (logical names under this track)
+
+version: 1
+
+tracks:
+  T1-ET-GT:
+    description: "Tomograms with ground truth for supervised metrics"
+    datasets:
+      - cryoet_ribo_v1
+  T2-NoGT:
+    description: "Experimental or benchmarks without reference volume"
+    datasets:
+      - exp_tomo_alpha
+  T3-Robustness:
+    description: "Variants (noise, coverage, tilt) of a base dataset"
+    datasets:
+      - cryoet_ribo_v1
+  T4-Scalability:
+    description: "Scaling / throughput oriented sets"
+    datasets:
+      - large_tomo_demo
+
+# Optional reverse lookup (for generators / validation)
+# dataset_index:
+#   cryoet_ribo_v1:
+#     track: T1-ET-GT
+#     root: benchmark_datasets/T1-ET-GT/cryoet_ribo_v1
