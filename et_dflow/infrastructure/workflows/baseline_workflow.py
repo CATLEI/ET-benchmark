@@ -9,7 +9,7 @@ import json
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from dflow import Workflow, Step, Steps, upload_artifact
 from dflow.python import OPIO
@@ -24,7 +24,10 @@ from et_dflow.infrastructure.workflows.dflow_config import configure_dflow
 
 
 def _sanitize_step_segment(name: str) -> str:
-    s = re.sub(r"[^a-zA-Z0-9._-]+", "-", str(name))
+    # Argo step names are stricter than file paths: use only lowercase
+    # alphanumerics and '-'.
+    s = str(name).lower()
+    s = re.sub(r"[^a-z0-9-]+", "-", s)
     s = s.strip("-") or "x"
     return s[:80]
 
@@ -58,6 +61,7 @@ class BaselineBenchmarkWorkflow:
         self._submitted_workflow_ids: List[str] = []
         self._active_dataset_keys: Optional[List[str]] = None
         self._remote_pairs: List[Tuple[str, str]] = []
+        self._hybrid_downloaded_pairs: set[Tuple[str, str]] = set()
         dflow_section = config.get("dflow") or {}
         configure_dflow(
             dflow_section=dflow_section,
@@ -84,6 +88,79 @@ class BaselineBenchmarkWorkflow:
     def _enabled_algorithms(self) -> List[Tuple[str, Dict[str, Any]]]:
         algorithms = self.config.get("algorithms", {})
         return [(n, c) for n, c in algorithms.items() if c.get("enabled", True) is not False]
+
+    def _workflow_steps_parallelism(self) -> Optional[int]:
+        """Cap concurrent pods per ``Steps`` group (``workflow`` / ``benchmark_suite`` ``parallelism``)."""
+        wf = self.config.get("workflow") or {}
+        suite = self.config.get("benchmark_suite") or {}
+        for src in (wf, suite):
+            for key in ("parallelism", "steps_parallelism"):
+                val = src.get(key)
+                if val is None:
+                    continue
+                try:
+                    n = int(val)
+                    return n if n > 0 else None
+                except (TypeError, ValueError):
+                    continue
+        return None
+
+    @staticmethod
+    def _count_steps_in_rows(rows: List[Union[Step, List[Step]]]) -> int:
+        n = 0
+        for item in rows:
+            if isinstance(item, list):
+                n += len(item)
+            else:
+                n += 1
+        return n
+
+    def _classify_dataset_size(self, ds_cfg: Dict[str, Any]) -> str:
+        md = ds_cfg.get("metadata") or {}
+        dims = md.get("recon_shape") or md.get("reconstruction_shape") or []
+        proj_shape = md.get("projection_shape") or []
+        num_proj = md.get("num_projections")
+        score = 0
+        try:
+            if isinstance(dims, list) and len(dims) >= 3:
+                score += int(dims[0]) * int(dims[1]) * int(dims[2])
+            if isinstance(proj_shape, list) and len(proj_shape) >= 2:
+                score += int(proj_shape[0]) * int(proj_shape[1]) * 8
+            if num_proj is not None:
+                score += int(num_proj) * 100000
+        except Exception:
+            score = 0
+        if score >= 2_500_000_000:
+            return "L"
+        if score >= 600_000_000:
+            return "M"
+        return "S"
+
+    def _resolve_runtime_profile(
+        self,
+        ds_key: str,
+        ds_cfg: Dict[str, Any],
+        alg_name: str,
+        alg_cfg: Dict[str, Any],
+    ) -> Tuple[Dict[str, Any], str]:
+        runtime_profiles = self.config.get("runtime_profiles") or {}
+        dataset_profiles = self.config.get("dataset_profiles") or {}
+        policy = self.config.get("policy") or {}
+        params = alg_cfg.get("parameters") or {}
+        selected_name = params.get("runtime_profile")
+        size_class = self._classify_dataset_size(ds_cfg)
+        if not selected_name:
+            ds_profile = dataset_profiles.get(size_class) or {}
+            selected_name = ds_profile.get("runtime_profile")
+        if not selected_name:
+            selected_name = policy.get("default_runtime_profile")
+        selected = runtime_profiles.get(selected_name, {}) if selected_name else {}
+        if selected_name:
+            print(
+                f"[et-dflow] runtime profile selected for {ds_key}/{alg_name}: "
+                f"{selected_name} (size_class={size_class})"
+            )
+        return dict(selected or {}), size_class
 
     def _run_local_data_preparation(
         self,
@@ -131,6 +208,7 @@ class BaselineBenchmarkWorkflow:
         self._remote_pairs = []
         self._hybrid_local_by_ds = {}
         self._hybrid_dataset_cfgs = {}
+        self._hybrid_downloaded_pairs = set()
 
         if self._hybrid:
             return self._build_workflow_hybrid(
@@ -164,18 +242,29 @@ class BaselineBenchmarkWorkflow:
                 raise ValueError(f"Dataset {ds_key} missing path in config")
             ground_truth_path = ds_cfg.get("ground_truth_path") or eval_config.get("ground_truth_path")
             san_ds = _sanitize_step_segment(ds_key)
+            print(
+                f"[et-dflow] Preparing dataset locally for hybrid mode: {ds_key} "
+                f"(input={dataset_path}, ground_truth={'yes' if ground_truth_path else 'no'})"
+            )
+            if ground_truth_path:
+                print(
+                    f"[et-dflow] Hybrid mode defers GT loading to local evaluation: {ds_key} "
+                    f"(ground_truth_path={ground_truth_path})"
+                )
             prep_file = self._run_output_dir / "_local_prep" / f"{san_ds}_prepared.hspy"
-            prepared, gt = self._run_local_data_preparation(
+            prepared, _ = self._run_local_data_preparation(
                 dataset_path=dataset_path,
-                ground_truth_path=ground_truth_path,
+                ground_truth_path=None,
                 dataset_format=ds_cfg.get("format", "hyperspy"),
                 preprocessing_steps=ds_cfg.get("preprocessing_steps"),
                 preprocessing_evaluation_config=ds_cfg.get("preprocessing_evaluation"),
                 metadata=ds_cfg.get("metadata", {}),
                 prepared_output_path=str(prep_file),
             )
-            self._hybrid_local_by_ds[ds_key] = (prepared, gt)
+            self._hybrid_local_by_ds[ds_key] = (prepared, ground_truth_path if ground_truth_path else None)
+            print(f"[et-dflow] Uploading prepared artifact for dataset: {ds_key}")
             prepared_artifact = upload_artifact(prepared)
+            print(f"[et-dflow] Prepared artifact upload finished for dataset: {ds_key}")
 
             for alg_name, alg_config in algorithms_items:
                 docker_image = alg_config.get("docker_image")
@@ -196,16 +285,35 @@ class BaselineBenchmarkWorkflow:
                     } if resources else None,
                 )
                 step_name = f"algorithm-{_sanitize_step_segment(ds_key)}-{_sanitize_step_segment(alg_name)}"
+                compat_algorithm_config = {
+                    **(alg_config.get("parameters", {}) or {}),
+                    "_et_dflow_dataset_key": ds_key,
+                    "_et_dflow_dataset_metadata": ds_cfg.get("metadata", {}),
+                }
+                runtime_profile_cfg, size_class = self._resolve_runtime_profile(
+                    ds_key=ds_key,
+                    ds_cfg=ds_cfg,
+                    alg_name=alg_name,
+                    alg_cfg=alg_config,
+                )
+                if runtime_profile_cfg:
+                    compat_algorithm_config["runtime_profile"] = runtime_profile_cfg
+                compat_algorithm_config.setdefault(
+                    "execution_policy",
+                    dict((self.config.get("policy") or {}).get("execution_policy") or {}),
+                )
+                compat_algorithm_config["_et_dflow_size_class"] = size_class
+                # dataset_key / metadata live in algorithm_config (_et_dflow_*); do not pass as
+                # separate Step parameters — older cluster et_dflow OP signatures without those
+                # keys would raise KeyError in the generated staging script.
                 alg_step = Step(
                     name=step_name,
                     template=alg_template,
                     parameters={
                         "algorithm_name": alg_name,
-                        "algorithm_config": alg_config.get("parameters", {}),
+                        "algorithm_config": compat_algorithm_config,
                         "docker_image": docker_image,
                         "resources": resources,
-                        "dataset_key": ds_key,
-                        "dataset_metadata": ds_cfg.get("metadata", {}),
                     },
                     artifacts={"prepared_data": prepared_artifact},
                 )
@@ -223,9 +331,15 @@ class BaselineBenchmarkWorkflow:
             self._local_ground_truth_path = None
 
         workflow_name = workflow_config.get("name", "baseline-benchmark")
+        para = self._workflow_steps_parallelism()
+        step_rows: List[Union[Step, List[Step]]] = [algorithm_steps]
         return Workflow(
             name=workflow_name,
-            steps=Steps(name=workflow_name + "-steps", steps=algorithm_steps),
+            steps=Steps(
+                name=workflow_name + "-steps",
+                steps=step_rows,
+                parallelism=para,
+            ),
         )
 
     def _build_workflow_remote(
@@ -253,8 +367,20 @@ class BaselineBenchmarkWorkflow:
             ground_truth_path = ds_cfg.get("ground_truth_path") or eval_config.get("ground_truth_path")
             san_ds = _sanitize_step_segment(ds_key)
 
+            print(
+                f"[et-dflow] Uploading input dataset artifact: {ds_key} "
+                f"(path={dataset_path})"
+            )
             dataset_artifact = upload_artifact(dataset_path)
+            print(f"[et-dflow] Dataset artifact upload finished: {ds_key}")
+            if ground_truth_path:
+                print(
+                    f"[et-dflow] Uploading ground truth artifact: {ds_key} "
+                    f"(path={ground_truth_path})"
+                )
             ground_truth_artifact = upload_artifact(ground_truth_path) if ground_truth_path else None
+            if ground_truth_path:
+                print(f"[et-dflow] Ground truth artifact upload finished: {ds_key}")
 
             prep_steps = ds_cfg.get("preprocessing_steps")
             prep_eval_cfg = ds_cfg.get("preprocessing_evaluation") or {}
@@ -266,7 +392,9 @@ class BaselineBenchmarkWorkflow:
                         "preprocessing_steps": prep_steps,
                         "preprocessing_evaluation_config": prep_eval_cfg,
                     }, f, ensure_ascii=False)
+                print(f"[et-dflow] Uploading preprocessing config artifact: {ds_key}")
                 prep_config_artifact = upload_artifact(str(prep_config_path))
+                print(f"[et-dflow] Preprocessing config upload finished: {ds_key}")
 
             data_prep_artifacts: Dict[str, Any] = {"dataset_path": dataset_artifact}
             if ground_truth_artifact is not None:
@@ -341,13 +469,29 @@ class BaselineBenchmarkWorkflow:
                         "memory": resources.get("memory", "4Gi"),
                     } if resources else None,
                 )
+                compat_algorithm_config = {
+                    **(alg_config.get("parameters", {}) or {}),
+                    "_et_dflow_dataset_key": ds_key,
+                    "_et_dflow_dataset_metadata": ds_cfg.get("metadata", {}),
+                }
+                runtime_profile_cfg, size_class = self._resolve_runtime_profile(
+                    ds_key=ds_key,
+                    ds_cfg=ds_cfg,
+                    alg_name=alg_name,
+                    alg_cfg=alg_config,
+                )
+                if runtime_profile_cfg:
+                    compat_algorithm_config["runtime_profile"] = runtime_profile_cfg
+                compat_algorithm_config.setdefault(
+                    "execution_policy",
+                    dict((self.config.get("policy") or {}).get("execution_policy") or {}),
+                )
+                compat_algorithm_config["_et_dflow_size_class"] = size_class
                 _alg_params = {
                     "algorithm_name": alg_name,
-                    "algorithm_config": alg_config.get("parameters", {}),
+                    "algorithm_config": compat_algorithm_config,
                     "docker_image": docker_image,
                     "resources": resources,
-                    "dataset_key": ds_key,
-                    "dataset_metadata": ds_cfg.get("metadata", {}),
                 }
                 alg_step = Step(
                     name=f"algorithm-{san_ds}-{_sanitize_step_segment(alg_name)}",
@@ -405,6 +549,9 @@ class BaselineBenchmarkWorkflow:
             },
             artifacts={
                 "metrics_files": [st.outputs.artifacts["metrics_file"] for st in evaluation_steps],
+                "execution_metadata_files": [
+                    st.outputs.artifacts["execution_metadata"] for st in algorithm_steps
+                ],
             },
         )
 
@@ -430,6 +577,9 @@ class BaselineBenchmarkWorkflow:
             "row_labels": row_labels,
             "reconstructions": [st.outputs.artifacts["reconstruction"] for st in algorithm_steps],
             "reconstruction_npys": [st.outputs.artifacts["reconstruction_npy"] for st in algorithm_steps],
+            "execution_metadata_files": [
+                st.outputs.artifacts["execution_metadata"] for st in algorithm_steps
+            ],
             "metrics_files": [st.outputs.artifacts["metrics_file"] for st in evaluation_steps],
             "comparison_report": comparison_step.outputs.artifacts["comparison_report"],
             "comparison_json": comparison_step.outputs.artifacts["comparison_json"],
@@ -439,12 +589,6 @@ class BaselineBenchmarkWorkflow:
         if gt_arts:
             export_artifacts["ground_truth_dataset_keys"] = gt_keys
             export_artifacts["ground_truth_list"] = gt_arts
-
-        steps_before_export: List[Step] = list(data_prep_steps.values())
-        steps_before_export.extend(preprocessing_eval_steps.values())
-        steps_before_export.extend(algorithm_steps)
-        steps_before_export.extend(evaluation_steps)
-        steps_before_export.append(comparison_step)
 
         if preprocessing_eval_steps:
             export_artifacts["preprocessing_metrics_files"] = [
@@ -463,18 +607,31 @@ class BaselineBenchmarkWorkflow:
             artifacts=export_artifacts,
         )
 
-        all_steps = steps_before_export + [export_step]
+        step_rows: List[Union[Step, List[Step]]] = [list(data_prep_steps.values())]
+        if preprocessing_eval_steps:
+            step_rows.append(list(preprocessing_eval_steps.values()))
+        step_rows.append(algorithm_steps)
+        step_rows.append(evaluation_steps)
+        step_rows.append(comparison_step)
+        step_rows.append(export_step)
+
         self._remote_pairs = [(dk, alg) for dk, alg, _ in algorithm_meta]
         workflow_name = workflow_config.get("name", "baseline-benchmark")
+        para = self._workflow_steps_parallelism()
+        flat_count = self._count_steps_in_rows(step_rows)
         workflow_kwargs = {
             "name": workflow_name,
             "steps_name": workflow_name + "-steps",
-            "steps_count": len(all_steps),
+            "steps_count": flat_count,
         }
         print("[et-dflow debug] Workflow(...) args:", workflow_kwargs)
         return Workflow(
             name=workflow_name,
-            steps=Steps(name=workflow_name + "-steps", steps=all_steps),
+            steps=Steps(
+                name=workflow_name + "-steps",
+                steps=step_rows,
+                parallelism=para,
+            ),
         )
 
     @staticmethod
@@ -583,7 +740,87 @@ class BaselineBenchmarkWorkflow:
             workflow = self._submitted_workflow
         else:
             workflow = Workflow(id=wid)
+        if self._hybrid:
+            self._wait_hybrid_incremental(workflow, timeout=timeout)
+            return
         workflow.wait()
+
+    def _wait_hybrid_incremental(self, workflow, timeout: Optional[int] = None):
+        import time
+
+        poll_interval_s = 10
+        started = time.time()
+        last_status = None
+        total_pairs = len(self._hybrid_pairs)
+
+        while True:
+            status = workflow.query_status()
+            if status != last_status:
+                print(f"[et-dflow] Hybrid workflow status: {status}")
+                last_status = status
+
+            self._download_available_hybrid_results(workflow)
+            completed = len(self._hybrid_downloaded_pairs)
+            if completed:
+                print(
+                    f"[et-dflow] Hybrid incremental download progress: "
+                    f"{completed}/{total_pairs} algorithm instance(s) downloaded"
+                )
+
+            if status in {"Succeeded", "Failed", "Error"}:
+                break
+            if timeout is not None and (time.time() - started) > timeout:
+                raise TimeoutError(f"Hybrid workflow wait timed out after {timeout} seconds")
+            time.sleep(poll_interval_s)
+
+        if status != "Succeeded":
+            print(
+                f"[et-dflow] Hybrid workflow finished with status={status}; "
+                "downloading any remaining successful algorithm artifacts before returning."
+            )
+            self._download_available_hybrid_results(workflow)
+
+    def _download_available_hybrid_results(self, workflow) -> None:
+        for ds_key, alg_name in self._hybrid_pairs:
+            pair = (ds_key, alg_name)
+            if pair in self._hybrid_downloaded_pairs:
+                continue
+            step_name = f"algorithm-{_sanitize_step_segment(ds_key)}-{_sanitize_step_segment(alg_name)}"
+            steps = workflow.query_step(name=step_name, phase="Succeeded")
+            if not steps:
+                continue
+            self._download_single_hybrid_algorithm_step(steps[-1], ds_key, alg_name)
+            self._hybrid_downloaded_pairs.add(pair)
+            print(f"[et-dflow] Downloaded completed hybrid result: {ds_key}/{alg_name}")
+
+    def _download_single_hybrid_algorithm_step(self, step, ds_key: str, alg_name: str) -> None:
+        import shutil
+        from tempfile import TemporaryDirectory
+        from dflow import download_artifact
+
+        safe_ds = _sanitize_step_segment(ds_key)
+        safe_alg = _sanitize_step_segment(alg_name)
+        alg_dir = self._run_output_dir / "by_dataset" / safe_ds / safe_alg
+        alg_dir.mkdir(parents=True, exist_ok=True)
+        for key, target_name in (
+            ("reconstruction", "reconstruction.hspy"),
+            ("reconstruction_npy", "reconstruction.npy"),
+            ("execution_metadata", "execution_metadata.json"),
+        ):
+            if key not in step.outputs.artifacts:
+                continue
+            with TemporaryDirectory() as tmp:
+                downloaded = download_artifact(step.outputs.artifacts[key], path=tmp)
+                if not downloaded:
+                    continue
+                path = Path(downloaded[0])
+                if path.is_file():
+                    shutil.copy2(path, alg_dir / target_name)
+                elif path.is_dir():
+                    for f in path.rglob("*"):
+                        if f.is_file() and (f.suffix == ".hspy" or f.suffix == ".npy"):
+                            shutil.copy2(f, alg_dir / target_name)
+                            break
 
     def download_results(self, workflow_id: str) -> Path:
         import shutil
@@ -605,37 +842,11 @@ class BaselineBenchmarkWorkflow:
     def _download_results_hybrid(self, workflow) -> Path:
         import os
         import shutil
-        from tempfile import TemporaryDirectory
-        from dflow import download_artifact
 
         eval_config = self.config.get("evaluation", {})
         metrics_list = eval_config.get("metrics", ["psnr", "ssim", "mse"])
 
-        for ds_key, alg_name in self._hybrid_pairs:
-            step_name = f"algorithm-{_sanitize_step_segment(ds_key)}-{_sanitize_step_segment(alg_name)}"
-            steps = workflow.query_step(name=step_name, phase="Succeeded")
-            if not steps:
-                continue
-            step = steps[-1]
-            safe_ds = _sanitize_step_segment(ds_key)
-            safe_alg = _sanitize_step_segment(alg_name)
-            alg_dir = self._run_output_dir / "by_dataset" / safe_ds / safe_alg
-            alg_dir.mkdir(parents=True, exist_ok=True)
-            for key, target_name in (("reconstruction", "reconstruction.hspy"), ("reconstruction_npy", "reconstruction.npy")):
-                if key not in step.outputs.artifacts:
-                    continue
-                with TemporaryDirectory() as tmp:
-                    downloaded = download_artifact(step.outputs.artifacts[key], path=tmp)
-                    if not downloaded:
-                        continue
-                    path = Path(downloaded[0])
-                    if path.is_file():
-                        shutil.copy2(path, alg_dir / target_name)
-                    elif path.is_dir():
-                        for f in path.rglob("*"):
-                            if f.is_file() and (f.suffix == ".hspy" or f.suffix == ".npy"):
-                                shutil.copy2(f, alg_dir / target_name)
-                                break
+        self._download_available_hybrid_results(workflow)
 
         data_dir = self._run_output_dir / "data"
         data_dir.mkdir(parents=True, exist_ok=True)
@@ -660,6 +871,7 @@ class BaselineBenchmarkWorkflow:
         algorithm_names_plain: List[str] = []
         row_labels: List[str] = []
         metrics_files: List[str] = []
+        execution_metadata_files: List[str] = []
         multi = len(self._hybrid_local_by_ds) > 1
         for ds_key, alg_name in self._hybrid_pairs:
             safe_ds = _sanitize_step_segment(ds_key)
@@ -670,6 +882,7 @@ class BaselineBenchmarkWorkflow:
             ds_cfg = self._hybrid_dataset_cfgs.get(ds_key, {})
             suite_meta = ds_cfg.get("metadata", {}) or {}
             metrics_file = self._run_output_dir / "by_dataset" / safe_ds / safe_alg / "evaluation.json"
+            execution_metadata_file = self._run_output_dir / "by_dataset" / safe_ds / safe_alg / "execution_metadata.json"
             op_in = OPIO({
                 "reconstruction": str(recon_path),
                 "metrics": metrics_list,
@@ -685,13 +898,18 @@ class BaselineBenchmarkWorkflow:
             algorithm_names_plain.append(alg_name)
             row_labels.append(f"{ds_key}/{alg_name}" if multi else alg_name)
             metrics_files.append(str(metrics_file))
+            if execution_metadata_file.exists():
+                execution_metadata_files.append(str(execution_metadata_file))
         if metrics_files:
             comp_op = ComparisonOP()
-            comp_out = comp_op.execute(OPIO(
-                metrics_files=metrics_files,
-                algorithm_names=algorithm_names_plain,
-                row_labels=row_labels,
-            ))
+            op_comp = {
+                "metrics_files": metrics_files,
+                "algorithm_names": algorithm_names_plain,
+                "row_labels": row_labels,
+            }
+            if len(execution_metadata_files) == len(metrics_files):
+                op_comp["execution_metadata_files"] = execution_metadata_files
+            comp_out = comp_op.execute(OPIO(op_comp))
             for name, path_key in (
                 ("comparison_report", "comparison_report.html"),
                 ("comparison_json", "comparison_summary.json"),

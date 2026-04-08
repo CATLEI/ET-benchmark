@@ -62,6 +62,7 @@ class DataPreparationOP(OP):
         """
         import hyperspy.api as hs
         import os
+        import time
         from pathlib import Path
         
         dataset_path = op_in["dataset_path"]
@@ -79,15 +80,38 @@ class DataPreparationOP(OP):
             preprocessing_evaluation_config = cfg.get("preprocessing_evaluation_config", preprocessing_evaluation_config)
         
         try:
+            started_at = time.time()
+
+            def _log_stage(message: str) -> None:
+                elapsed = time.time() - started_at
+                timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+                print(
+                    f"[et-dflow] [{timestamp}] DataPreparationOP {message} "
+                    f"(elapsed={elapsed:.2f}s)",
+                    flush=True,
+                )
+
             # Initialize factory and preprocessor
             factory = get_data_loader_factory()
             preprocessor = DataPreprocessor()
+            dataset_size = os.path.getsize(dataset_path) if os.path.exists(dataset_path) else None
+            gt_size = os.path.getsize(ground_truth_path) if ground_truth_path and os.path.exists(ground_truth_path) else None
+            _log_stage(
+                "start: "
+                f"dataset={dataset_path}, "
+                f"dataset_format={dataset_format}, "
+                f"dataset_size_bytes={dataset_size}, "
+                f"ground_truth={'yes' if ground_truth_path else 'no'}, "
+                f"ground_truth_size_bytes={gt_size}"
+            )
             
             # Detect format and convert if necessary
             detected_format = factory._detect_format(dataset_path)
+            _log_stage(f"detected input format: {detected_format} for {dataset_path}")
             
             if detected_format != "hspy":
                 # Convert to hspy format
+                _log_stage(f"converting input to hspy: {dataset_path}")
                 converter = FormatConverter()
                 cache_dir = Path("/tmp/data/cache/converted")
                 cache_dir.mkdir(parents=True, exist_ok=True)
@@ -98,13 +122,19 @@ class DataPreparationOP(OP):
                 signal.metadata.set_item("original_path", dataset_path)
             else:
                 # Directly load hspy format
+                _log_stage(f"loading hspy input: {dataset_path}")
                 loader = factory.create_loader(dataset_path)
                 signal = loader.load(dataset_path)
+            _log_stage(
+                "input loaded: "
+                f"shape={getattr(getattr(signal, 'data', None), 'shape', None)}"
+            )
             
             # Apply preprocessing (optionally save intermediates for evaluation)
             save_after_steps = (preprocessing_evaluation_config or {}).get("save_after_steps")
             save_dir = "/tmp/prep_intermediates" if save_after_steps else None
             if preprocessing_steps:
+                _log_stage(f"running preprocessing steps: {preprocessing_steps}")
                 result = preprocessor.preprocess(
                     signal,
                     preprocessing_steps,
@@ -118,6 +148,7 @@ class DataPreparationOP(OP):
                     intermediates = {}
             else:
                 intermediates = {}
+                _log_stage("no preprocessing steps configured")
             
             # Enrich metadata (Hyperspy metadata is DictionaryTreeBrowser, use set_item not update)
             for k, v in (metadata or {}).items():
@@ -132,7 +163,9 @@ class DataPreparationOP(OP):
             
             # Ensure directory exists
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
+            _log_stage(f"saving prepared data to: {output_path}")
             signal.save(output_path)
+            _log_stage(f"prepared data saved: {output_path}")
             
             # Prepare output metadata
             output_metadata = {
@@ -145,9 +178,11 @@ class DataPreparationOP(OP):
             gt_output_path = None
             if ground_truth_path and os.path.exists(ground_truth_path):
                 gt_detected_format = factory._detect_format(ground_truth_path)
+                _log_stage(f"detected GT format: {gt_detected_format} for {ground_truth_path}")
                 
                 if gt_detected_format != "hspy":
                     # Convert ground truth to hspy format
+                    _log_stage(f"converting GT to hspy: {ground_truth_path}")
                     converter = FormatConverter()
                     cache_dir = Path("/tmp/data/cache/converted")
                     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -157,11 +192,18 @@ class DataPreparationOP(OP):
                     gt_signal.metadata.set_item("original_path", ground_truth_path)
                 else:
                     # Directly load hspy format
+                    _log_stage(f"loading GT hspy: {ground_truth_path}")
                     gt_loader = factory.create_loader(ground_truth_path)
                     gt_signal = gt_loader.load(ground_truth_path)
+                    _log_stage(
+                        "GT loaded: "
+                        f"shape={getattr(getattr(gt_signal, 'data', None), 'shape', None)}"
+                    )
                 
                 gt_output_path = output_path.replace(".hspy", "_ground_truth.hspy")
+                _log_stage(f"saving GT copy to: {gt_output_path}")
                 gt_signal.save(gt_output_path)
+                _log_stage(f"GT copy saved: {gt_output_path}")
                 output_metadata["ground_truth_path"] = gt_output_path
             
             out = {

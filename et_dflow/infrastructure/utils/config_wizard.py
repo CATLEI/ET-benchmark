@@ -166,6 +166,8 @@ class ConfigValidator:
             for ds_name, ds_config in config["datasets"].items():
                 if "path" not in ds_config:
                     errors.append(f"Dataset {ds_name} missing path")
+
+        self._validate_runtime_strategy(config, errors, warnings, suggestions)
         
         return {
             "valid": len(errors) == 0,
@@ -173,4 +175,99 @@ class ConfigValidator:
             "warnings": warnings,
             "suggestions": suggestions,
         }
+
+    @staticmethod
+    def _validate_runtime_strategy(
+        config: Dict[str, Any],
+        errors: List[str],
+        warnings: List[str],
+        suggestions: List[str],
+    ) -> None:
+        runtime_profiles = config.get("runtime_profiles") or {}
+        dataset_profiles = config.get("dataset_profiles") or {}
+        policy = config.get("policy") or {}
+
+        if runtime_profiles and not isinstance(runtime_profiles, dict):
+            errors.append("runtime_profiles must be a mapping of profile_name -> profile_config")
+            return
+        if dataset_profiles and not isinstance(dataset_profiles, dict):
+            errors.append("dataset_profiles must be a mapping of class_name -> profile selector")
+            return
+        if policy and not isinstance(policy, dict):
+            errors.append("policy must be a mapping")
+            return
+
+        allowed_backends = {"cpu_sirt", "astra_gpu_sirt"}
+        for alg_name, alg_cfg in (config.get("algorithms") or {}).items():
+            if not isinstance(alg_cfg, dict):
+                continue
+            params = alg_cfg.get("parameters") or {}
+            if not isinstance(params, dict):
+                errors.append(f"Algorithm {alg_name} parameters must be a mapping")
+                continue
+            backend = params.get("backend")
+            if backend is not None and backend not in allowed_backends:
+                errors.append(
+                    f"Algorithm {alg_name} has invalid parameters.backend={backend!r}; "
+                    f"allowed: {sorted(allowed_backends)}"
+                )
+            dtype = params.get("dtype")
+            if dtype is not None and dtype not in {"float32", "float64"}:
+                errors.append(
+                    f"Algorithm {alg_name} has invalid parameters.dtype={dtype!r}; "
+                    "allowed: 'float32' or 'float64'"
+                )
+            iterations = params.get("iterations")
+            if iterations is not None:
+                try:
+                    it_n = int(iterations)
+                    if it_n <= 0:
+                        errors.append(f"Algorithm {alg_name} parameters.iterations must be > 0")
+                except (TypeError, ValueError):
+                    errors.append(f"Algorithm {alg_name} parameters.iterations must be an integer")
+
+        for profile_name, profile_cfg in runtime_profiles.items():
+            if not isinstance(profile_cfg, dict):
+                errors.append(f"runtime_profiles.{profile_name} must be a mapping")
+                continue
+            backend = profile_cfg.get("backend")
+            if backend is not None and backend not in allowed_backends:
+                errors.append(
+                    f"runtime_profiles.{profile_name}.backend={backend!r} not in {sorted(allowed_backends)}"
+                )
+            for key in ("threads", "iterations", "ram_limit_gb", "gpu_count", "vram_min_gb", "chunk_size"):
+                if key not in profile_cfg:
+                    continue
+                try:
+                    val = int(profile_cfg[key])
+                    if val <= 0:
+                        errors.append(f"runtime_profiles.{profile_name}.{key} must be > 0")
+                except (TypeError, ValueError):
+                    errors.append(f"runtime_profiles.{profile_name}.{key} must be an integer")
+            dtype = profile_cfg.get("dtype")
+            if dtype is not None and dtype not in {"float32", "float64"}:
+                errors.append(
+                    f"runtime_profiles.{profile_name}.dtype={dtype!r} must be 'float32' or 'float64'"
+                )
+
+        for size_class, ds_profile in dataset_profiles.items():
+            if not isinstance(ds_profile, dict):
+                errors.append(f"dataset_profiles.{size_class} must be a mapping")
+                continue
+            candidate = ds_profile.get("runtime_profile")
+            if candidate and candidate not in runtime_profiles:
+                warnings.append(
+                    f"dataset_profiles.{size_class}.runtime_profile={candidate!r} "
+                    "is not defined in runtime_profiles"
+                )
+
+        policy_profile = policy.get("default_runtime_profile")
+        if policy_profile and policy_profile not in runtime_profiles:
+            warnings.append(
+                f"policy.default_runtime_profile={policy_profile!r} not found in runtime_profiles"
+            )
+        if not runtime_profiles:
+            suggestions.append(
+                "Add runtime_profiles/dataset_profiles/policy to enable automatic SIRT resource tiering."
+            )
 

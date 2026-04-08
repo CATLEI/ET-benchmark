@@ -38,6 +38,7 @@ class ExportResultsOP(OP):
             "row_labels": Parameter(List[str], optional=True),
             "reconstructions": Artifact(List[str]),
             "reconstruction_npys": Artifact(List[str]),
+            "execution_metadata_files": Artifact(List[str], optional=True),
             "metrics_files": Artifact(List[str]),
             "comparison_report": Artifact(str),
             "comparison_json": Artifact(str),
@@ -113,6 +114,7 @@ class ExportResultsOP(OP):
         reconstructions = op_in["reconstructions"]
         reconstruction_npys = op_in["reconstruction_npys"]
         metrics_files = op_in["metrics_files"]
+        execution_metadata_files = op_in.get("execution_metadata_files") or []
 
         export_dataset_keys: List[str] = op_in.get("export_dataset_keys") or []
         if not export_dataset_keys:
@@ -125,13 +127,22 @@ class ExportResultsOP(OP):
         if len(export_dataset_keys) != len(algorithm_names):
             raise ValueError("export_dataset_keys length must match algorithm_names")
 
-        for ds_k, alg_name, _row_label, reconstruction, reconstruction_npy, metrics_file in zip(
+        for idx, (
+            ds_k,
+            alg_name,
+            _row_label,
+            reconstruction,
+            reconstruction_npy,
+            metrics_file,
+        ) in enumerate(
+            zip(
             export_dataset_keys,
             algorithm_names,
             row_labels,
             reconstructions,
             reconstruction_npys,
             metrics_files,
+            )
         ):
             rel = Path("by_dataset") / _safe_path_segment(ds_k) / _safe_path_segment(alg_name)
             alg_dir = bundle_root / rel
@@ -139,6 +150,8 @@ class ExportResultsOP(OP):
             shutil.copy2(str(reconstruction), str(alg_dir / "reconstruction.hspy"))
             shutil.copy2(str(reconstruction_npy), str(alg_dir / "reconstruction.npy"))
             shutil.copy2(str(metrics_file), str(alg_dir / "evaluation.json"))
+            if idx < len(execution_metadata_files) and execution_metadata_files[idx]:
+                shutil.copy2(str(execution_metadata_files[idx]), str(alg_dir / "execution_metadata.json"))
 
         comparison_report = Path(op_in["comparison_report"])
         comparison_json = Path(op_in["comparison_json"])

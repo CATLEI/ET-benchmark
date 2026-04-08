@@ -30,6 +30,7 @@ class ComparisonOP(OP):
         """Get input signature."""
         return OPIO({
             "metrics_files": Artifact(List[str]),
+            "execution_metadata_files": Artifact(List[str], optional=True),
             "algorithm_names": Parameter(List[str]),
             "row_labels": Parameter(List[str], optional=True),
         })
@@ -56,6 +57,7 @@ class ComparisonOP(OP):
             Output OPIO with comparison report
         """
         metrics_files = op_in["metrics_files"]
+        execution_metadata_files = op_in.get("execution_metadata_files") or []
         algorithm_names = op_in["algorithm_names"]
         row_labels: List[str] = op_in.get("row_labels") or list(algorithm_names)
         if len(row_labels) != len(algorithm_names):
@@ -74,7 +76,16 @@ class ComparisonOP(OP):
         leaderboard_rows: List[Dict[str, Any]] = []
         by_track: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
 
-        for eval_file, alg_name, row_label in zip(metrics_files, algorithm_names, row_labels):
+        for idx, (eval_file, alg_name, row_label) in enumerate(
+            zip(metrics_files, algorithm_names, row_labels)
+        ):
+            exec_meta: Dict[str, Any] = {}
+            if idx < len(execution_metadata_files):
+                try:
+                    with open(execution_metadata_files[idx], "r", encoding="utf-8") as f:
+                        exec_meta = json.load(f) or {}
+                except Exception as e:
+                    print(f"Warning: Failed to load execution metadata for {row_label}: {e}")
             try:
                 with open(eval_file, 'r') as f:
                     eval_data = json.load(f)
@@ -89,6 +100,13 @@ class ComparisonOP(OP):
                         "track": track,
                         "variant": meta.get("variant"),
                         "metrics": metrics,
+                        "execution": {
+                            "backend": exec_meta.get("backend"),
+                            "runtime_profile": exec_meta.get("runtime_profile"),
+                            "fallback_used": exec_meta.get("fallback_used"),
+                            "peak_rss_mb": exec_meta.get("peak_rss_mb"),
+                            "attempts": exec_meta.get("attempts"),
+                        },
                         "load_error": "",
                     }
                     leaderboard_rows.append(row)
@@ -104,6 +122,13 @@ class ComparisonOP(OP):
                     "track": err_track,
                     "variant": None,
                     "metrics": {},
+                    "execution": {
+                        "backend": exec_meta.get("backend"),
+                        "runtime_profile": exec_meta.get("runtime_profile"),
+                        "fallback_used": exec_meta.get("fallback_used"),
+                        "peak_rss_mb": exec_meta.get("peak_rss_mb"),
+                        "attempts": exec_meta.get("attempts"),
+                    },
                     "load_error": str(e),
                 }
                 leaderboard_rows.append(row)

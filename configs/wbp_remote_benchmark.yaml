@@ -1,47 +1,57 @@
-# WBP-only remote benchmark config for master-node submission
-# -----------------------------------------------------------
+# WBP + SIRT hybrid benchmark (master prep/eval, remote algorithm containers)
+# -------------------------------------------------------------------------
 # Usage:
 #   et-dflow benchmark configs/wbp_remote_benchmark.yaml --output-dir ./results
 #
-# Hybrid mode (no runner_image): data prep, evaluation, comparison run on the master node;
-# only the WBP algorithm runs in a remote container. Set execution_mode: hybrid and omit runner_image.
+# Parallel: all dataset×algorithm steps share one dflow Steps row; workflow.parallelism
+# caps concurrent pods (2 datasets × 2 algorithms => max 4 here; tune for your quota).
 #
-# Remote mode: all steps run in remote containers; requires runner_image.
+# SIRT: pure CPU via parameters.backend: cpu_sirt and runtime_profiles below.
+#
+# Fill in real paths, images, and dflow/S3 endpoints before use.
 
 datasets:
-  tomo_sample:
-    # Local path on the master node. This file is uploaded as a dflow artifact (remote) or used for local prep (hybrid).
-    path: "E:/data/et/sample_01/raw/tilt_series.mrc"
-    format: "mrc"
+  T1_shrec21_model_0:
+    path: "/personal/ET/data/benchmarks/T1-ET-GT/shrec21/model_0/tilt_series.hspy"
+    format: "hyperspy"
+    ground_truth_path: "/personal/ET/data/benchmarks/T1-ET-GT/shrec21/model_0/ground_truth.hspy"
+    metadata:
+      track: "T1-ET-GT"
+      dataset_id: "shrec21"
+      variant: "model_0"
 
-    # Optional ground truth for supervised metrics such as PSNR / SSIM / MSE.
-    ground_truth_path: "E:/data/et/sample_01/raw/ground_truth.hspy"
-
-    # Optional: configurable preprocessing pipeline (order and params).
-    # preprocessing_steps:
-    #   - name: downsample
-    #     params: { factor: 2 }
-    #   - name: background_subtraction
-    #     params: { method: "rolling_ball" }
-    #   - name: alignment
-    #     params: { methods: ["cross_correlation", "tilt_axis"] }
-    #   - name: denoising
-    #     params: { method: "bilateral" }
-    # preprocessing_evaluation:
-    #   save_after_steps: ["alignment", "denoising"]
-    #   alignment_metrics: ["shift_stability", "cross_correlation_peak"]
-    #   denoising_metrics: ["snr_estimate", "local_variance"]
+  T1_shrec21_model_1:
+    path: "/personal/ET/data/benchmarks/T1-ET-GT/shrec21/model_1/tilt_series.hspy"
+    format: "hyperspy"
+    ground_truth_path: "/personal/ET/data/benchmarks/T1-ET-GT/shrec21/model_1/ground_truth.hspy"
+    metadata:
+      track: "T1-ET-GT"
+      dataset_id: "shrec21"
+      variant: "model_1"
 
 algorithms:
   wbp:
     enabled: true
-    docker_image: "registry.example.com/et-dflow/wbp:bohr"
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/wbp:202603121021"
     parameters:
       filter_type: "ramp"
       filter_cutoff: 1.0
     resources:
       cpu: 2
-      memory: "4Gi"
+      memory: "16Gi"
+      gpu: false
+
+  sirt:
+    enabled: true
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/sirt:20260321"
+    parameters:
+      backend: "cpu_sirt"
+      iterations: 100
+      relaxation_factor: 0.5
+      dtype: "float32"
+    resources:
+      cpu: 32
+      memory: "128Gi"
       gpu: false
 
 evaluation:
@@ -51,16 +61,40 @@ evaluation:
     - "mse"
 
 workflow:
-  name: "wbp-remote-benchmark"
+  name: "t1-shrec21-benchmark"
   type: "baseline_benchmark"
   output_dir: "./results"
 
   # Hybrid: data prep and evaluation run on master; only algorithm runs remotely. No runner_image needed.
   execution_mode: "hybrid"
+  # Cap concurrent algorithm pods (omit for no limit). 4 = full fan-out for 2 datasets × 2 algorithms.
+  parallelism: 4
   # runner_image: "registry.example.com/et-dflow/runner:latest"  # required only when execution_mode is remote
 
-# dflow 配置 (玻尔空间站 / Bohr Space Station)
-# 参考: https://space.bohrium.cn 工作流提交配置
+# CPU-SIRT template (threads aligned with algorithms.sirt.resources.cpu when possible)
+runtime_profiles:
+  cpu_sirt_default:
+    backend: "cpu_sirt"
+    threads: 32
+    iterations: 100
+    dtype: "float32"
+
+dataset_profiles:
+  S:
+    runtime_profile: "cpu_sirt_default"
+  M:
+    runtime_profile: "cpu_sirt_default"
+  L:
+    runtime_profile: "cpu_sirt_default"
+
+policy:
+  default_runtime_profile: "cpu_sirt_default"
+  execution_policy:
+    max_retries: 0
+    oom_fallback_backend: "cpu_sirt"
+    oom_fallback_overrides:
+      use_native: false
+
 dflow:
   mode: "remote"
   host: "http://workflows.deepmodeling.com"
@@ -71,7 +105,6 @@ dflow:
   # Bohr 存储 (oss-bohrium + TiefblueClient)
   s3_repo_key: "oss-bohrium"
   s3_storage_client: "dflow.plugins.bohrium.TiefblueClient"
-  # 推荐使用环境变量，避免密码明文：export BOHRIUM_USERNAME=... BOHRIUM_PASSWORD=... BOHRIUM_PROJECT_ID=...
   bohrium_username: ""
   bohrium_password: ""
   bohrium_project_id: ""
