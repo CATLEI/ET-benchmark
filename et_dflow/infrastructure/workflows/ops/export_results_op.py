@@ -79,13 +79,11 @@ class ExportResultsOP(OP):
         if len(dataset_keys) != len(prepared_list):
             raise ValueError("dataset_keys length must match prepared_data_list")
 
-        by_ds_root = data_dir / "by_dataset"
-        by_ds_root.mkdir(parents=True, exist_ok=True)
         for dk, prep in zip(dataset_keys, prepared_list):
             seg = _safe_path_segment(dk)
-            ddir = by_ds_root / seg
-            ddir.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(str(prep), str(ddir / "prepared_data.hspy"))
+            pdir = data_dir / seg / "prepared_data"
+            pdir.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(str(prep), str(pdir / "prepared_data.hspy"))
 
         gt_keys: List[str] = list(op_in.get("ground_truth_dataset_keys") or [])
         gt_list = op_in.get("ground_truth_list") or []
@@ -94,14 +92,17 @@ class ExportResultsOP(OP):
                 if not gt_path:
                     continue
                 seg = _safe_path_segment(dk)
-                ddir = by_ds_root / seg
-                ddir.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(str(gt_path), str(ddir / "prepared_data_ground_truth.hspy"))
+                pdir = data_dir / seg / "prepared_data"
+                pdir.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(str(gt_path), str(pdir / "prepared_data_ground_truth.hspy"))
         elif op_in.get("ground_truth") and len(prepared_list) == 1:
-            shutil.copy2(str(op_in["ground_truth"]), str(data_dir / "prepared_data_ground_truth.hspy"))
-
-        # Legacy single-tree copy (first prepared) for older consumers
-        shutil.copy2(str(prepared_list[0]), str(data_dir / "prepared_data.hspy"))
+            seg = _safe_path_segment(dataset_keys[0])
+            pdir = data_dir / seg / "prepared_data"
+            pdir.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(
+                str(op_in["ground_truth"]),
+                str(pdir / "prepared_data_ground_truth.hspy"),
+            )
 
         algorithm_names = op_in["algorithm_names"]
         row_labels = op_in.get("row_labels") or list(algorithm_names)
@@ -144,7 +145,7 @@ class ExportResultsOP(OP):
             metrics_files,
             )
         ):
-            rel = Path("by_dataset") / _safe_path_segment(ds_k) / _safe_path_segment(alg_name)
+            rel = Path("data") / _safe_path_segment(ds_k) / _safe_path_segment(alg_name)
             alg_dir = bundle_root / rel
             alg_dir.mkdir(parents=True, exist_ok=True)
             shutil.copy2(str(reconstruction), str(alg_dir / "reconstruction.hspy"))

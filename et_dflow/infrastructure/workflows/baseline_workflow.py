@@ -32,6 +32,118 @@ def _sanitize_step_segment(name: str) -> str:
     return s[:80]
 
 
+def _hybrid_data_root(run_dir: Path) -> Path:
+    """Hybrid run layout root: ``<run_dir>/data`` (per-dataset tree lives here)."""
+    return run_dir / "data"
+
+
+def _hybrid_prepared_data_dir(run_dir: Path, ds_key: str) -> Path:
+    """``<run_dir>/data/<dataset>/prepared_data/`` — prepared + GT mirrors."""
+    return _hybrid_data_root(run_dir) / _sanitize_step_segment(ds_key) / "prepared_data"
+
+
+def _hybrid_dataset_alg_dir(run_dir: Path, ds_key: str, alg_name: str) -> Path:
+    """``<run_dir>/data/<dataset>/<algorithm>/`` — reconstructions, eval, metadata."""
+    return (
+        _hybrid_data_root(run_dir)
+        / _sanitize_step_segment(ds_key)
+        / _sanitize_step_segment(alg_name)
+    )
+
+
+def _algorithm_step_name(ds_key: str, alg_name: str) -> str:
+    return f"algorithm-{_sanitize_step_segment(ds_key)}-{_sanitize_step_segment(alg_name)}"
+
+
+def _step_display_name(step: Any) -> str:
+    return str(getattr(step, "displayName", None) or getattr(step, "name", None) or "")
+
+
+def _match_expected_step_display(expected: str, step: Any) -> bool:
+    """
+    Match dflow/Argo step displayName to our constructed algorithm step name.
+
+    Primary path uses query_step(name=expected); some clusters expose a prefixed
+    or dotted displayName, so we fall back to the same rules as dflow's match()
+    plus a few safe suffix/segment patterns.
+    """
+    dn = _step_display_name(step)
+    if not dn:
+        return False
+    if dn == expected:
+        return True
+    if dn.find(expected + "(") == 0:
+        return True
+    if dn.endswith(expected):
+        return True
+    if "." in dn and dn.split(".")[-1] == expected:
+        return True
+    return False
+
+
+def _pick_algorithm_pod_step(candidates: List[Any]) -> Any:
+    if len(candidates) == 1:
+        return candidates[0]
+    pods = [s for s in candidates if getattr(s, "type", None) == "Pod"]
+    if len(pods) == 1:
+        return pods[0]
+    return candidates[-1]
+
+
+def _derive_reconstruction_npy_tif_from_hspy(alg_dir: Path) -> None:
+    """
+    After hybrid download, ensure .npy and .tif exist beside reconstruction.hspy.
+
+    Artifact pull may omit reconstruction_npy on some gateways; HyperSpy is used for
+    a consistent array. TIFF: 2D → single page; 3D+ → multi-page / ImageJ hyperstack
+    (Z,Y,X) for visualization in Fiji/ImageJ.
+    """
+    hspy_path = alg_dir / "reconstruction.hspy"
+    if not hspy_path.is_file():
+        return
+    npy_path = alg_dir / "reconstruction.npy"
+    tif_path = alg_dir / "reconstruction.tif"
+    if npy_path.is_file() and tif_path.is_file():
+        return
+    try:
+        import numpy as np
+        import tifffile
+
+        if npy_path.is_file():
+            data = np.load(str(npy_path))
+        else:
+            import hyperspy.api as hs
+
+            sig = hs.load(str(hspy_path))
+            data = np.asarray(sig.data, dtype=np.float32)
+            np.save(str(npy_path), data)
+            print(
+                f"[et-dflow] Wrote {npy_path.name} from {hspy_path.name} "
+                "(derived locally; use artifact copy when available)."
+            )
+        if not tif_path.is_file():
+            if data.ndim == 2:
+                tifffile.imwrite(str(tif_path), data)
+                print(f"[et-dflow] Wrote {tif_path.name} (2D, shape={data.shape}).")
+            elif data.ndim == 3:
+                # ImageJ-compatible stack: one slice per page (Z, Y, X).
+                tifffile.imwrite(str(tif_path), data, imagej=True)
+                print(
+                    f"[et-dflow] Wrote {tif_path.name} (3D stack Z×Y×X={data.shape}, ImageJ hyperstack)."
+                )
+            elif data.ndim == 4:
+                # e.g. (tilt, z, y, x) — write as 3D by taking first index or flatten
+                vol = np.asarray(data[0], dtype=np.float32)
+                tifffile.imwrite(str(tif_path), vol, imagej=True)
+                print(
+                    f"[et-dflow] Wrote {tif_path.name} (used first 4D index, 3D volume shape={vol.shape})."
+                )
+            else:
+                print("[et-dflow] Skip reconstruction.tif: unsupported array ndim.")
+    except Exception as e:
+        print(f"[et-dflow] Could not derive .npy/.tif from reconstruction.hspy: {e}")
+
+
 class BaselineBenchmarkWorkflow:
     """
     Baseline benchmark workflow using dflow.
@@ -749,8 +861,10 @@ class BaselineBenchmarkWorkflow:
         import time
 
         poll_interval_s = 10
+        heartbeat_s = 60
         started = time.time()
         last_status = None
+        last_heartbeat = started
         total_pairs = len(self._hybrid_pairs)
 
         while True:
@@ -758,6 +872,14 @@ class BaselineBenchmarkWorkflow:
             if status != last_status:
                 print(f"[et-dflow] Hybrid workflow status: {status}")
                 last_status = status
+            now = time.time()
+            if now - last_heartbeat >= heartbeat_s:
+                elapsed = int(now - started)
+                print(
+                    f"[et-dflow] Hybrid wait heartbeat: status={status}, "
+                    f"elapsed={elapsed}s, downloaded_pairs={len(self._hybrid_downloaded_pairs)}/{total_pairs}"
+                )
+                last_heartbeat = now
 
             self._download_available_hybrid_results(workflow)
             completed = len(self._hybrid_downloaded_pairs)
@@ -773,20 +895,45 @@ class BaselineBenchmarkWorkflow:
                 raise TimeoutError(f"Hybrid workflow wait timed out after {timeout} seconds")
             time.sleep(poll_interval_s)
 
+        # One more pass after terminal status to catch steps that finished between polls
+        # or whose displayName only matches via fallback (see _download_available_hybrid_results).
         if status != "Succeeded":
             print(
                 f"[et-dflow] Hybrid workflow finished with status={status}; "
                 "downloading any remaining successful algorithm artifacts before returning."
             )
-            self._download_available_hybrid_results(workflow)
+        self._download_available_hybrid_results(workflow)
+        undl = total_pairs - len(self._hybrid_downloaded_pairs)
+        if undl > 0:
+            wf_id = getattr(workflow, "id", None) or ""
+            print(
+                f"[et-dflow] Warning: {undl} algorithm row(s) still not downloaded locally. "
+                f"If Argo shows green checks, inspect node displayNames, e.g. "
+                f"`dflow get {wf_id!r}` and compare to the step names printed at submit time."
+            )
 
     def _download_available_hybrid_results(self, workflow) -> None:
+        all_succ_cache: Optional[List[Any]] = None
+
+        def _all_succeeded_steps() -> List[Any]:
+            nonlocal all_succ_cache
+            if all_succ_cache is None:
+                all_succ_cache = workflow.query_step(phase="Succeeded")
+            return all_succ_cache
+
         for ds_key, alg_name in self._hybrid_pairs:
             pair = (ds_key, alg_name)
             if pair in self._hybrid_downloaded_pairs:
                 continue
-            step_name = f"algorithm-{_sanitize_step_segment(ds_key)}-{_sanitize_step_segment(alg_name)}"
-            steps = workflow.query_step(name=step_name, phase="Succeeded")
+            expected = _algorithm_step_name(ds_key, alg_name)
+            steps = workflow.query_step(name=expected, phase="Succeeded")
+            if not steps:
+                candidates = [
+                    st
+                    for st in _all_succeeded_steps()
+                    if _match_expected_step_display(expected, st)
+                ]
+                steps = [_pick_algorithm_pod_step(candidates)] if candidates else []
             if not steps:
                 continue
             self._download_single_hybrid_algorithm_step(steps[-1], ds_key, alg_name)
@@ -798,9 +945,7 @@ class BaselineBenchmarkWorkflow:
         from tempfile import TemporaryDirectory
         from dflow import download_artifact
 
-        safe_ds = _sanitize_step_segment(ds_key)
-        safe_alg = _sanitize_step_segment(alg_name)
-        alg_dir = self._run_output_dir / "by_dataset" / safe_ds / safe_alg
+        alg_dir = _hybrid_dataset_alg_dir(self._run_output_dir, ds_key, alg_name)
         alg_dir.mkdir(parents=True, exist_ok=True)
         for key, target_name in (
             ("reconstruction", "reconstruction.hspy"),
@@ -812,15 +957,35 @@ class BaselineBenchmarkWorkflow:
             with TemporaryDirectory() as tmp:
                 downloaded = download_artifact(step.outputs.artifacts[key], path=tmp)
                 if not downloaded:
+                    print(
+                        f"[et-dflow] download_artifact returned nothing for {key!r} "
+                        f"(step {_step_display_name(step)!r}); check storage credentials / network."
+                    )
                     continue
                 path = Path(downloaded[0])
                 if path.is_file():
                     shutil.copy2(path, alg_dir / target_name)
                 elif path.is_dir():
+                    want_suffixes: Tuple[str, ...]
+                    if key == "execution_metadata":
+                        want_suffixes = (".json",)
+                    elif key == "reconstruction_npy":
+                        want_suffixes = (".npy",)
+                    else:
+                        want_suffixes = (".hspy", ".h5", ".hdf5", ".h5py")
+                    copied = False
                     for f in path.rglob("*"):
-                        if f.is_file() and (f.suffix == ".hspy" or f.suffix == ".npy"):
+                        if f.is_file() and f.suffix.lower() in want_suffixes:
                             shutil.copy2(f, alg_dir / target_name)
+                            copied = True
                             break
+                    if not copied:
+                        print(
+                            f"[et-dflow] No file with suffix in {want_suffixes!r} under {path}; "
+                            f"cannot place {target_name}."
+                        )
+
+        _derive_reconstruction_npy_tif_from_hspy(alg_dir)
 
     def download_results(self, workflow_id: str) -> Path:
         import shutil
@@ -848,24 +1013,20 @@ class BaselineBenchmarkWorkflow:
 
         self._download_available_hybrid_results(workflow)
 
-        data_dir = self._run_output_dir / "data"
+        print(
+            "[et-dflow] Hybrid: running local evaluation and comparison "
+            "(this step is not on Argo; it runs after artifacts are downloaded)."
+        )
+
+        data_dir = _hybrid_data_root(self._run_output_dir)
         data_dir.mkdir(parents=True, exist_ok=True)
-        by_ds = data_dir / "by_dataset"
-        by_ds.mkdir(parents=True, exist_ok=True)
         for ds_key, (prep_path, gt_path) in self._hybrid_local_by_ds.items():
-            safe_ds = _sanitize_step_segment(ds_key)
-            ddir = by_ds / safe_ds
-            ddir.mkdir(parents=True, exist_ok=True)
+            pdir = _hybrid_prepared_data_dir(self._run_output_dir, ds_key)
+            pdir.mkdir(parents=True, exist_ok=True)
             if prep_path and os.path.exists(prep_path):
-                shutil.copy2(prep_path, ddir / "prepared_data.hspy")
+                shutil.copy2(prep_path, pdir / "prepared_data.hspy")
             if gt_path and os.path.exists(gt_path):
-                shutil.copy2(gt_path, ddir / "prepared_data_ground_truth.hspy")
-        if len(self._hybrid_local_by_ds) == 1:
-            only = next(iter(self._hybrid_local_by_ds.values()))
-            if only[0] and os.path.exists(only[0]):
-                shutil.copy2(only[0], data_dir / "prepared_data.hspy")
-            if only[1] and os.path.exists(only[1]):
-                shutil.copy2(only[1], data_dir / "prepared_data_ground_truth.hspy")
+                shutil.copy2(gt_path, pdir / "prepared_data_ground_truth.hspy")
 
         eval_op = EvaluationOP()
         algorithm_names_plain: List[str] = []
@@ -876,13 +1037,18 @@ class BaselineBenchmarkWorkflow:
         for ds_key, alg_name in self._hybrid_pairs:
             safe_ds = _sanitize_step_segment(ds_key)
             safe_alg = _sanitize_step_segment(alg_name)
-            recon_path = self._run_output_dir / "by_dataset" / safe_ds / safe_alg / "reconstruction.hspy"
+            alg_base = _hybrid_dataset_alg_dir(self._run_output_dir, ds_key, alg_name)
+            recon_path = alg_base / "reconstruction.hspy"
             if not recon_path.exists():
+                print(
+                    f"[et-dflow] Skip evaluation for {ds_key}/{alg_name}: "
+                    f"missing {recon_path} (download may have failed)."
+                )
                 continue
             ds_cfg = self._hybrid_dataset_cfgs.get(ds_key, {})
             suite_meta = ds_cfg.get("metadata", {}) or {}
-            metrics_file = self._run_output_dir / "by_dataset" / safe_ds / safe_alg / "evaluation.json"
-            execution_metadata_file = self._run_output_dir / "by_dataset" / safe_ds / safe_alg / "execution_metadata.json"
+            metrics_file = alg_base / "evaluation.json"
+            execution_metadata_file = alg_base / "execution_metadata.json"
             op_in = OPIO({
                 "reconstruction": str(recon_path),
                 "metrics": metrics_list,
@@ -894,7 +1060,22 @@ class BaselineBenchmarkWorkflow:
             _prep, gt_path = self._hybrid_local_by_ds.get(ds_key, (None, None))
             if gt_path and os.path.exists(gt_path):
                 op_in["ground_truth"] = gt_path
-            eval_op.execute(op_in)
+            else:
+                print(
+                    f"[et-dflow] Dataset {ds_key}: no local ground_truth_path (or file missing); "
+                    "PSNR/SSIM/MSE need GT — metrics in evaluation.json may be empty or omitted."
+                )
+            try:
+                eval_op.execute(op_in)
+                print(
+                    f"[et-dflow] Wrote evaluation metrics: {metrics_file}"
+                )
+            except Exception as exc:
+                print(
+                    f"[et-dflow] Evaluation failed for {ds_key}/{alg_name}: {exc!r}. "
+                    "Check that HyperSpy can load the reconstruction and (if used) ground truth."
+                )
+                raise
             algorithm_names_plain.append(alg_name)
             row_labels.append(f"{ds_key}/{alg_name}" if multi else alg_name)
             metrics_files.append(str(metrics_file))

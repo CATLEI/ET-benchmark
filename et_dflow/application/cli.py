@@ -6,6 +6,7 @@ Provides CLI commands for running benchmarks and managing workflows.
 
 import contextlib
 import json
+import os
 import sys
 from contextlib import contextmanager
 from pathlib import Path
@@ -35,6 +36,11 @@ class _TeeTextStream:
     def flush(self) -> None:
         self._primary.flush()
         self._log.flush()
+        try:
+            fd = self._log.fileno()
+            os.fsync(fd)
+        except (OSError, AttributeError):
+            pass
 
     def isatty(self) -> bool:
         return self._primary.isatty()
@@ -44,7 +50,8 @@ class _TeeTextStream:
 def _tee_run_log(log_path: Path) -> Iterator[None]:
     """Mirror stdout and stderr to ``log_path`` while still printing to the terminal."""
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    log_f = open(log_path, "w", encoding="utf-8", newline="")
+    # Line-buffered so long-running hybrid waits still append to benchmark.log promptly.
+    log_f = open(log_path, "w", encoding="utf-8", newline="", buffering=1)
     old_out = sys.stdout
     old_err = sys.stderr
     try:
@@ -256,6 +263,13 @@ def benchmark(
                     click.echo(f"Workflow {wid} status: {status}")
                     local_results_dirs.append(workflow.download_results(wid))
                 click.echo(f"Results downloaded to: {', '.join(str(p) for p in local_results_dirs)}")
+            elif getattr(workflow, "_hybrid", False):
+                click.echo(
+                    "Note: --no-yes skips wait and download. Hybrid local evaluation "
+                    "(evaluation.json, comparison_report) only runs when you use default "
+                    "--yes or manually invoke download_results after artifacts exist.",
+                    err=True,
+                )
 
         except ImportError as e:
             click.echo(f"Error: dflow not available - {e}", err=True)
