@@ -1,0 +1,62 @@
+# WBP hybrid benchmark: Aligned data/model SM70 (±70°)
+# -------------------------------------------------------------------------
+# Prerequisite:
+#   python scripts/convert_aligned_model_to_etdflow.py --variant sm70
+#
+# Usage:
+#   et-dflow benchmark configs/wbp_hybrid_aligned_model_sm70.yaml --output-dir ./results
+#
+# Hybrid: data prep + evaluation on master; WBP runs in remote container only.
+# Reconstruction is aligned to 512^3 GT before PSNR/SSIM/MSE (Nrecon=513).
+
+datasets:
+  aligned_model_sm70:
+    path: "./data/datasets/simulated/aligned_model_sm70_v1/raw/tilt_series.hspy"
+    format: "hyperspy"
+    ground_truth_path: "./data/datasets/simulated/aligned_model_sm70_v1/ground_truth/volume.hspy"
+    metadata:
+      variant: "sm70"
+      tilt_range: [-70, 70]
+      missing_wedge_angle: 70
+      gt_shape: [512, 512, 512]
+      source_root: "E:/data/Aligned data/model"
+
+algorithms:
+  wbp:
+    enabled: true
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/wbp:202603121021"
+    parameters:
+      filter_type: "ramp"
+      filter_cutoff: 1.0
+      Nrecon: 513
+    resources:
+      cpu: 4
+      memory: "16Gi"
+      gpu: false
+
+evaluation:
+  metrics:
+    - "psnr"
+    - "ssim"
+    - "mse"
+  align_reconstruction: true
+  align_target_shape: [512, 512, 512]
+  align_max_shift: 8
+
+workflow:
+  name: "aligned-model-sm70-wbp"
+  type: "baseline_benchmark"
+  output_dir: "./results"
+  execution_mode: "hybrid"
+
+dflow:
+  mode: "remote"
+  host: "http://workflows.deepmodeling.com"
+  k8s_api_server: "http://workflows.deepmodeling.com"
+  namespace: "argo"
+  token: ""
+  s3_repo_key: "oss-bohrium"
+  s3_storage_client: "dflow.plugins.bohrium.TiefblueClient"
+  bohrium_username: ""
+  bohrium_password: ""
+  bohrium_project_id: ""

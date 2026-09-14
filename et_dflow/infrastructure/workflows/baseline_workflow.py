@@ -640,6 +640,7 @@ class BaselineBenchmarkWorkflow:
                     "metrics_file": f"/tmp/{san_ds}_{san_alg}_evaluation.json",
                     "dataset_key": ds_key,
                     "suite_metadata": suite_meta,
+                    "evaluation_config": eval_config,
                 },
                 artifacts=eval_artifacts,
             )
