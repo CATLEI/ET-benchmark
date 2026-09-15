@@ -61,9 +61,9 @@ class WBPAlgorithm(Algorithm):
             AlgorithmError: If reconstruction fails
         """
         try:
-            # Get tilt series data
-            tilt_series = data.data
-            
+            # Get tilt series data (tilt-axis prep is done in convert_* scripts, not here)
+            tilt_series = np.asarray(data.data, dtype=np.float32)
+
             # Get tilt angles from metadata
             tilt_angles = self._get_tilt_angles(data, config)
             

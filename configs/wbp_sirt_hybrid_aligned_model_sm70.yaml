@@ -1,0 +1,102 @@
+# WBP + SIRT hybrid benchmark: Aligned data/model SM70 (±70°)
+# -------------------------------------------------------------------------
+# Prerequisite (tilt-axis auto-corrected inside convert; expect shape ~ (141,512,513)):
+#   python scripts/convert_aligned_model_to_etdflow.py --variant sm70
+#
+# Usage:
+#   et-dflow benchmark configs/wbp_sirt_hybrid_aligned_model_sm70.yaml --output-dir ./results
+#
+# Hybrid: data prep + evaluation on master; WBP and SIRT run as parallel remote pods.
+# Expected recon shape ~ (512, 513, 513); GT is 512^3 (align off on first run to avoid OOM).
+
+datasets:
+  aligned_model_sm70:
+    path: "./data/datasets/simulated/aligned_model_sm70_v1/raw/tilt_series.hspy"
+    format: "hyperspy"
+    ground_truth_path: "./data/datasets/simulated/aligned_model_sm70_v1/ground_truth/volume.hspy"
+    metadata:
+      variant: "sm70"
+      tilt_range: [-70, 70]
+      missing_wedge_angle: 70
+      gt_shape: [512, 512, 512]
+      source_root: "/personal/ET/data/Aligned_data/model/"
+
+algorithms:
+  wbp:
+    enabled: true
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/wbp:20260410"
+    parameters:
+      filter_type: "ramp"
+      filter_cutoff: 1.0
+      Nrecon: 513
+    resources:
+      cpu: 4
+      memory: "16Gi"
+      gpu: false
+
+  sirt:
+    enabled: true
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/sirt:20260321"
+    parameters:
+      backend: "cpu_sirt"
+      iterations: 30
+      relaxation_factor: 0.5
+      update_method: "landweber"
+      dtype: "float32"
+    resources:
+      cpu: 16
+      memory: "64Gi"
+      gpu: false
+
+evaluation:
+  metrics:
+    - "psnr"
+    - "ssim"
+    - "mse"
+  # First run: false to avoid master OOM/Killed on dual-volume eval.
+  # Set true (+ enough RAM) for fine alignment onto GT 512^3.
+  align_reconstruction: false
+  align_target_shape: [512, 512, 512]
+  align_max_shift: 8
+
+workflow:
+  name: "aligned-model-sm70-wbp-sirt"
+  type: "baseline_benchmark"
+  output_dir: "./results"
+  execution_mode: "hybrid"
+  parallelism: 2
+
+runtime_profiles:
+  cpu_sirt_default:
+    backend: "cpu_sirt"
+    threads: 16
+    iterations: 30
+    dtype: "float32"
+
+dataset_profiles:
+  S:
+    runtime_profile: "cpu_sirt_default"
+  M:
+    runtime_profile: "cpu_sirt_default"
+  L:
+    runtime_profile: "cpu_sirt_default"
+
+policy:
+  default_runtime_profile: "cpu_sirt_default"
+  execution_policy:
+    max_retries: 0
+    oom_fallback_backend: "cpu_sirt"
+    oom_fallback_overrides:
+      use_native: false
+
+dflow:
+  mode: "remote"
+  host: "http://workflows.deepmodeling.com"
+  k8s_api_server: "http://workflows.deepmodeling.com"
+  namespace: "argo"
+  token: ""
+  s3_repo_key: "oss-bohrium"
+  s3_storage_client: "dflow.plugins.bohrium.TiefblueClient"
+  bohrium_username: ""
+  bohrium_password: ""
+  bohrium_project_id: "3407188"

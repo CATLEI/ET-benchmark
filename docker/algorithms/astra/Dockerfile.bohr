@@ -8,7 +8,7 @@ USER root
 RUN mkdir -p /app
 WORKDIR /tmp/etdflow-build
 
-ARG ET_DFLOW_REPO_URL
+ARG ET_DFLOW_REPO_URL=https://github.com/CATLEI/ET-benchmark.git 
 ARG ET_DFLOW_REPO_REF=main
 
 RUN apt-get update && apt-get install -y --no-install-recommends git \
