@@ -47,7 +47,17 @@ algorithms:
       cpu: 16
       memory: "64Gi"
       gpu: false
-
+  astra:
+    enabled: true
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/astra:20260913"   # 粘贴玻尔产物
+    parameters:
+      use_native: true
+      astra_algorithm: "SIRT3D_CUDA"
+      astra_niter: 150
+    resources:
+      cpu: 8
+      memory: "32Gi"
+      gpu: 1
 evaluation:
   metrics:
     - "psnr"

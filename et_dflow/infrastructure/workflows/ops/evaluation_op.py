@@ -7,7 +7,10 @@ Calculates evaluation metrics on algorithm results.
 from typing import Any, Dict, List, Optional, Tuple
 from dflow.python import OP, OPIO, Parameter, Artifact
 from et_dflow.domain.evaluation.chain import build_evaluation_chain
-from et_dflow.domain.evaluation.volume_alignment import align_reconstruction_signal
+from et_dflow.domain.evaluation.volume_alignment import (
+    align_reconstruction_signal,
+    center_embed,
+)
 from et_dflow.core.models import AlgorithmResult, EvaluationResult
 from et_dflow.core.exceptions import EvaluationError
 
@@ -90,24 +93,57 @@ class EvaluationOP(OP):
 
             align_meta: Optional[Dict[str, Any]] = None
             recon_for_metrics = reconstruction
-            if (
-                ground_truth is not None
-                and evaluation_config.get("align_reconstruction", False)
-            ):
-                max_shift = int(evaluation_config.get("align_max_shift", 8))
+            if ground_truth is not None:
+                import numpy as np
+
+                recon_shape = tuple(int(x) for x in np.asarray(reconstruction.data).shape)
+                gt_shape = tuple(int(x) for x in np.asarray(ground_truth.data).shape)
                 target_shape = _target_shape(evaluation_config, ground_truth)
-                recon_for_metrics, align_meta = align_reconstruction_signal(
-                    reconstruction,
-                    ground_truth,
-                    target_shape=target_shape,
-                    max_shift=max_shift,
-                )
-                metrics_dir = Path(str(op_in["metrics_file"])).parent
-                aligned_path = metrics_dir / "reconstruction_aligned.hspy"
-                recon_for_metrics.save(str(aligned_path))
-                meta_path = metrics_dir / "reconstruction_align_meta.json"
-                with open(meta_path, "w", encoding="utf-8") as mf:
-                    json.dump(align_meta, mf, indent=2)
+                if evaluation_config.get("align_reconstruction", False):
+                    max_shift = int(evaluation_config.get("align_max_shift", 8))
+                    recon_for_metrics, align_meta = align_reconstruction_signal(
+                        reconstruction,
+                        ground_truth,
+                        target_shape=target_shape,
+                        max_shift=max_shift,
+                    )
+                    metrics_dir = Path(str(op_in["metrics_file"])).parent
+                    aligned_path = metrics_dir / "reconstruction_aligned.hspy"
+                    recon_for_metrics.save(str(aligned_path))
+                    meta_path = metrics_dir / "reconstruction_align_meta.json"
+                    with open(meta_path, "w", encoding="utf-8") as mf:
+                        json.dump(align_meta, mf, indent=2)
+                elif recon_shape != gt_shape or recon_shape != target_shape:
+                    # Cheap path for SM70-style 513 vs 512 grids without NCC search.
+                    print(
+                        f"[et-dflow] Shape mismatch recon={recon_shape} gt={gt_shape}; "
+                        f"center-crop/pad to {target_shape} for metrics "
+                        "(set evaluation.align_reconstruction: true for NCC registration)."
+                    )
+                    recon_arr = center_embed(
+                        np.asarray(reconstruction.data, dtype=np.float32),
+                        target_shape,
+                    )
+                    gt_arr = (
+                        np.asarray(ground_truth.data, dtype=np.float32)
+                        if gt_shape == target_shape
+                        else center_embed(
+                            np.asarray(ground_truth.data, dtype=np.float32),
+                            target_shape,
+                        )
+                    )
+                    recon_for_metrics = hs.signals.Signal2D(recon_arr)
+                    ground_truth = hs.signals.Signal2D(gt_arr)
+                    align_meta = {
+                        "strategy": "center_embed_only",
+                        "gt_shape": list(gt_shape),
+                        "reconstruction_shape_before": list(recon_shape),
+                        "target_shape": list(target_shape),
+                    }
+                    metrics_dir = Path(str(op_in["metrics_file"])).parent
+                    meta_path = metrics_dir / "reconstruction_align_meta.json"
+                    with open(meta_path, "w", encoding="utf-8") as mf:
+                        json.dump(align_meta, mf, indent=2)
 
             # Create AlgorithmResult placeholder
             algorithm_result = AlgorithmResult(

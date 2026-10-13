@@ -46,6 +46,10 @@ def _apply_bohrium_config(
             bohrium.config["password"] = str(dflow_section["bohrium_password"])
         if dflow_section.get("bohrium_project_id"):
             bohrium.config["project_id"] = str(dflow_section["bohrium_project_id"])
+        if dflow_section.get("bohrium_access_key"):
+            bohrium.config["access_key"] = str(dflow_section["bohrium_access_key"])
+        if dflow_section.get("bohrium_app_key"):
+            bohrium.config["app_key"] = str(dflow_section["bohrium_app_key"])
     if from_env:
         if os.getenv("BOHRIUM_USERNAME") is not None:
             bohrium.config["username"] = os.getenv("BOHRIUM_USERNAME", "")
@@ -53,6 +57,10 @@ def _apply_bohrium_config(
             bohrium.config["password"] = os.getenv("BOHRIUM_PASSWORD", "")
         if os.getenv("BOHRIUM_PROJECT_ID") is not None:
             bohrium.config["project_id"] = os.getenv("BOHRIUM_PROJECT_ID", "")
+        if os.getenv("BOHRIUM_ACCESS_KEY") is not None:
+            bohrium.config["access_key"] = os.getenv("BOHRIUM_ACCESS_KEY", "")
+        if os.getenv("BOHRIUM_APP_KEY") is not None:
+            bohrium.config["app_key"] = os.getenv("BOHRIUM_APP_KEY", "")
 
 
 def _boolize(value: Any) -> bool:
@@ -82,7 +90,9 @@ def configure_dflow(
             s3_access_key, s3_secret_key, s3_secure, s3_console.
             Bohr (玻尔): host, namespace, k8s_api_server, token (empty), s3_repo_key
             (oss-bohrium), s3_storage_client (dflow.plugins.bohrium.TiefblueClient),
-            bohrium_username, bohrium_password, bohrium_project_id.
+            bohrium_username, bohrium_password, bohrium_project_id,
+            bohrium_access_key, bohrium_app_key (prefer env BOHRIUM_ACCESS_KEY /
+            BOHRIUM_APP_KEY; access_key exchanges a ticket without password).
         workflow_output_dir: Optional output dir from workflow config (e.g. config["workflow"]["output_dir"]).
         run_dir: Reserved for backward compatibility. Remote mode does not use local debug workdirs.
     """
@@ -183,6 +193,8 @@ def configure_dflow(
         or (dflow_section or {}).get("s3_repo_key") == "oss-bohrium"
         or os.getenv("BOHRIUM_USERNAME")
         or (dflow_section or {}).get("bohrium_username")
+        or os.getenv("BOHRIUM_ACCESS_KEY")
+        or (dflow_section or {}).get("bohrium_access_key")
         or (dflow_s3_config.get("repo_key") == "oss-bohrium")
         or (dflow_s3_config.get("storage_client") is not None)
     )

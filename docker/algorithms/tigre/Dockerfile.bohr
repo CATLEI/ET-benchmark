@@ -1,34 +1,28 @@
-# Build TIGRE + ET-dflow when the builder **cannot COPY local et-dflow** (e.g. Bohr / remote
-# context that only uploads this Dockerfile). Clones ET-dflow from Git during the build.
+# TIGRE thin image for Bohr Station custom-image UI (same workflow as wbp/Dockerfile.bohr).
 #
-# Required build arg:
-#   ET_DFLOW_REPO_URL  - Git URL (https or internal) of the ET-dflow repository
+# How to use on Bohrium:
+#   1. Open 自定义镜像 / Dockerfile 构建
+#   2. Paste this entire file as the Dockerfile
+#   3. Build & push; put Image URI into yaml algorithms.tigre.docker_image
 #
-# Optional:
-#   ET_DFLOW_REPO_REF  - branch, tag, or commit (default: main)
-#   BASE_IMAGE         - upstream TIGRE image (default: registry.dp.tech/.../tigre:...)
-#
-# Example:
-#   docker build -f docker/algorithms/tigre/Dockerfile.bohr \
-#     --build-arg ET_DFLOW_REPO_URL=https://github.com/your-org/ET-dflow.git \
-#     --build-arg ET_DFLOW_REPO_REF=main \
-#     -t et-dflow/tigre:bohr .
+# Optional build args (defaults match WBP):
+#   ET_DFLOW_REPO_URL  (default: https://github.com/CATLEI/ET-benchmark.git)
+#   ET_DFLOW_REPO_REF   (default: main)
 
-ARG BASE_IMAGE=registry.dp.tech/davinci/tigre:20260113153441
-FROM ${BASE_IMAGE}
+FROM registry.dp.tech/davinci/tigre:20260113153441
 
 USER root
 RUN mkdir -p /app
 WORKDIR /tmp/etdflow-build
 
-ARG ET_DFLOW_REPO_URL
+ARG ET_DFLOW_REPO_URL=https://github.com/CATLEI/ET-benchmark.git
 ARG ET_DFLOW_REPO_REF=main
 
 RUN apt-get update && apt-get install -y --no-install-recommends git \
     && rm -rf /var/lib/apt/lists/*
 
 RUN test -n "${ET_DFLOW_REPO_URL}" || \
-    (echo "ET_DFLOW_REPO_URL build arg is required for Dockerfile.bohr." >&2 && exit 1)
+    (echo "ET_DFLOW_REPO_URL build arg is required." >&2 && exit 1)
 
 RUN git clone "${ET_DFLOW_REPO_URL}" repo && \
     cd repo && \
@@ -36,8 +30,10 @@ RUN git clone "${ET_DFLOW_REPO_URL}" repo && \
 
 WORKDIR /tmp/etdflow-build/repo
 
-RUN python -m pip install --no-cache-dir -r requirements-etdflow-algorithm.txt && \
-    python -m pip install --no-cache-dir --no-deps .
+RUN python -m pip install --no-cache-dir --timeout 300 \
+    -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements-etdflow-algorithm.txt && \
+    python -m pip install --no-cache-dir --timeout 300 \
+    -i https://pypi.tuna.tsinghua.edu.cn/simple --no-deps .
 
 RUN cp docker/algorithms/tigre/run_algorithm.py /app/run_algorithm.py && \
     cp docker/algorithms/tigre/docker-entrypoint.sh /app/docker-entrypoint.sh && \

@@ -1,21 +1,29 @@
-# IsoNet + ET-dflow without local COPY of et-dflow (clone at build time).
-# See tigre/Dockerfile.bohr for build-arg documentation.
+# IsoNet thin image for Bohr Station custom-image UI (same workflow as wbp/Dockerfile.bohr).
+#
+# How to use on Bohrium:
+#   1. Open 自定义镜像 / Dockerfile 构建
+#   2. Paste this entire file as the Dockerfile
+#   3. Build & push; put Image URI into yaml algorithms.isonet.docker_image
+#   4. Native run needs isonet_argv + output path in yaml parameters
+#
+# Optional build args (defaults match WBP):
+#   ET_DFLOW_REPO_URL  (default: https://github.com/CATLEI/ET-benchmark.git)
+#   ET_DFLOW_REPO_REF   (default: main)
 
-ARG BASE_IMAGE=registry.dp.tech/davinci/isonet:20260113153511
-FROM ${BASE_IMAGE}
+FROM registry.dp.tech/davinci/isonet:20260113153511
 
 USER root
 RUN mkdir -p /app
 WORKDIR /tmp/etdflow-build
 
-ARG ET_DFLOW_REPO_URL
+ARG ET_DFLOW_REPO_URL=https://github.com/CATLEI/ET-benchmark.git
 ARG ET_DFLOW_REPO_REF=main
 
 RUN apt-get update && apt-get install -y --no-install-recommends git \
     && rm -rf /var/lib/apt/lists/*
 
 RUN test -n "${ET_DFLOW_REPO_URL}" || \
-    (echo "ET_DFLOW_REPO_URL build arg is required for Dockerfile.bohr." >&2 && exit 1)
+    (echo "ET_DFLOW_REPO_URL build arg is required." >&2 && exit 1)
 
 RUN git clone "${ET_DFLOW_REPO_URL}" repo && \
     cd repo && \
@@ -23,8 +31,10 @@ RUN git clone "${ET_DFLOW_REPO_URL}" repo && \
 
 WORKDIR /tmp/etdflow-build/repo
 
-RUN python -m pip install --no-cache-dir -r requirements-etdflow-algorithm.txt && \
-    python -m pip install --no-cache-dir --no-deps .
+RUN python -m pip install --no-cache-dir --timeout 300 \
+    -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements-etdflow-algorithm.txt && \
+    python -m pip install --no-cache-dir --timeout 300 \
+    -i https://pypi.tuna.tsinghua.edu.cn/simple --no-deps .
 
 RUN cp docker/algorithms/isonet/run_algorithm.py /app/run_algorithm.py && \
     cp docker/algorithms/isonet/docker-entrypoint.sh /app/docker-entrypoint.sh && \
