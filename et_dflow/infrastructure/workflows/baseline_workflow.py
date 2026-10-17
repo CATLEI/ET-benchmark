@@ -32,6 +32,168 @@ def _sanitize_step_segment(name: str) -> str:
     return s[:80]
 
 
+def _algorithm_container_resources(
+    resources: Dict[str, Any],
+) -> Tuple[Optional[Dict[str, str]], Optional[Dict[str, str]]]:
+    """Map algorithm resources to the pod spec.
+
+    A positive ``gpu`` count is sent as ``nvidia.com/gpu`` on both requests
+    and limits. dflow forwards that dict to the Argo container, which is what
+    schedules the step onto a GPU node. The image itself does not request a GPU.
+    """
+    if not resources:
+        return None, None
+    req: Dict[str, str] = {
+        "cpu": str(resources.get("cpu", 2)),
+        "memory": str(resources.get("memory", "4Gi")),
+    }
+    gpu = resources.get("gpu", 0)
+    if isinstance(gpu, str) and gpu.strip().isdigit():
+        gpu_count = int(gpu.strip())
+    elif isinstance(gpu, bool):
+        gpu_count = int(gpu)
+    elif isinstance(gpu, int):
+        gpu_count = gpu
+    else:
+        gpu_count = 0
+    if gpu_count > 0:
+        req["nvidia.com/gpu"] = str(gpu_count)
+    return req, dict(req)
+
+
+def _echo_container_log(alg_dir: Path, ds_key: str, alg_name: str) -> None:
+    """Print the container log so the CLI tee copies it into benchmark.log."""
+    text = ""
+    log_path = alg_dir / "algorithm.log"
+    if log_path.is_file():
+        text = log_path.read_text(encoding="utf-8", errors="replace")
+    else:
+        meta_path = alg_dir / "execution_metadata.json"
+        if meta_path.is_file():
+            try:
+                data = json.loads(meta_path.read_text(encoding="utf-8"))
+                text = str(data.get("algorithm_log") or "")
+            except (OSError, json.JSONDecodeError, TypeError):
+                text = ""
+    label = f"{ds_key}/{alg_name}"
+    if not text.strip():
+        print(f"[et-dflow] {label}: no container log in downloaded artifacts")
+        return
+    print(f"[et-dflow] ===== container log {label} =====")
+    print(text.rstrip())
+    print(f"[et-dflow] ===== end container log {label} =====")
+
+
+def _echo_logs_under(root: Path) -> None:
+    seen: set[Path] = set()
+    for log_path in sorted(root.rglob("algorithm.log")):
+        seen.add(log_path.parent.resolve())
+        rel = log_path.parent.relative_to(root)
+        _echo_container_log(log_path.parent, str(rel), log_path.parent.name)
+    for meta_path in sorted(root.rglob("execution_metadata.json")):
+        if meta_path.parent.resolve() in seen:
+            continue
+        rel = meta_path.parent.relative_to(root)
+        _echo_container_log(meta_path.parent, str(rel), meta_path.parent.name)
+
+
+def _step_text_fields(step) -> str:
+    chunks: List[str] = []
+    for attr in ("message", "msg", "error"):
+        val = getattr(step, attr, None)
+        if isinstance(val, str) and val.strip():
+            chunks.append(val.rstrip())
+    getter = getattr(step, "get", None)
+    if callable(getter):
+        for key in ("message", "msg", "error"):
+            try:
+                val = getter(key)
+            except Exception:
+                continue
+            if isinstance(val, str) and val.strip() and val.rstrip() not in chunks:
+                chunks.append(val.rstrip())
+    outputs = getattr(step, "outputs", None)
+    params = getattr(outputs, "parameters", None) if outputs is not None else None
+    if isinstance(params, dict):
+        for key in ("message", "error", "dflow_exception"):
+            val = params.get(key)
+            text = getattr(val, "value", val)
+            if isinstance(text, str) and text.strip() and text.rstrip() not in chunks:
+                chunks.append(text.rstrip())
+    return "\n".join(chunks)
+
+
+def _download_failed_step_logs(step, dest: Path) -> None:
+    """Download algorithm.log from a failed step when dflow saved it before the raise."""
+    import shutil
+    from tempfile import TemporaryDirectory
+
+    outputs = getattr(step, "outputs", None)
+    artifacts = getattr(outputs, "artifacts", None) if outputs is not None else None
+    if not isinstance(artifacts, dict):
+        print("[et-dflow] failed step has no output artifacts")
+        return
+    print("[et-dflow] failed step artifact keys: %s" % sorted(artifacts))
+    try:
+        from dflow import download_artifact
+    except Exception as exc:
+        print(f"[et-dflow] cannot import download_artifact: {exc}")
+        return
+    dest.mkdir(parents=True, exist_ok=True)
+    for key, target_name in (
+        ("algorithm_log", "algorithm.log"),
+        ("execution_metadata", "execution_metadata.json"),
+    ):
+        if key not in artifacts:
+            continue
+        try:
+            with TemporaryDirectory() as tmp:
+                downloaded = download_artifact(artifacts[key], path=tmp)
+                if not downloaded:
+                    print(f"[et-dflow] failed-step download returned nothing for {key}")
+                    continue
+                path = Path(downloaded[0])
+                if path.is_file():
+                    shutil.copy2(path, dest / target_name)
+                elif path.is_dir():
+                    suffix = ".json" if key == "execution_metadata" else ".log"
+                    copied = False
+                    for child in path.rglob("*"):
+                        if child.is_file() and child.suffix.lower() in {suffix, ".txt"}:
+                            shutil.copy2(child, dest / target_name)
+                            copied = True
+                            break
+                    if not copied:
+                        print(f"[et-dflow] no {suffix} file under failed-step artifact {key}")
+        except Exception as exc:
+            print(f"[et-dflow] download failed-step {key} failed: {exc}")
+    _echo_container_log(dest, "failed", dest.name)
+
+
+def _report_failed_steps(workflow, run_dir: Optional[Path] = None) -> None:
+    """Surface failed remote steps into the master log (benchmark.log)."""
+    for phase in ("Failed", "Error"):
+        try:
+            steps = workflow.query_step(phase=phase) or []
+        except Exception as exc:
+            print(f"[et-dflow] query_step phase={phase} failed: {exc}")
+            continue
+        for step in steps:
+            name = _step_display_name(step)
+            print(
+                f"[et-dflow] Step failed: {name} phase={phase} "
+                f"type={getattr(step, 'type', None)} id={getattr(step, 'id', None)}"
+            )
+            text = _step_text_fields(step)
+            if text:
+                print(text)
+            else:
+                print("[et-dflow] failed step has no message field")
+            if run_dir is not None:
+                safe = re.sub(r"[^A-Za-z0-9._-]+", "-", name or "unknown-step")[:120]
+                _download_failed_step_logs(step, Path(run_dir) / "failed_steps" / safe)
+
+
 def _hybrid_data_root(run_dir: Path) -> Path:
     """Hybrid run layout root: ``<run_dir>/data`` (per-dataset tree lives here)."""
     return run_dir / "data"
@@ -383,18 +545,18 @@ class BaselineBenchmarkWorkflow:
                 if not docker_image:
                     raise ValueError(f"Algorithm {alg_name} missing docker_image in config")
                 resources = alg_config.get("resources", {})
+                requests, limits = _algorithm_container_resources(resources)
+                if requests and "nvidia.com/gpu" in requests:
+                    print(
+                        "[et-dflow] %s requests nvidia.com/gpu=%s"
+                        % (alg_name, requests["nvidia.com/gpu"])
+                    )
                 alg_op = AlgorithmExecutionOP()
                 alg_template = PythonOPTemplate(
                     alg_op,
                     image=docker_image,
-                    requests={
-                        "cpu": str(resources.get("cpu", 2)),
-                        "memory": resources.get("memory", "4Gi"),
-                    } if resources else None,
-                    limits={
-                        "cpu": str(resources.get("cpu", 2)),
-                        "memory": resources.get("memory", "4Gi"),
-                    } if resources else None,
+                    requests=requests,
+                    limits=limits,
                 )
                 step_name = f"algorithm-{_sanitize_step_segment(ds_key)}-{_sanitize_step_segment(alg_name)}"
                 compat_algorithm_config = {
@@ -568,18 +730,18 @@ class BaselineBenchmarkWorkflow:
                 if not docker_image:
                     raise ValueError(f"Algorithm {alg_name} missing docker_image in config")
                 resources = alg_config.get("resources", {})
+                requests, limits = _algorithm_container_resources(resources)
+                if requests and "nvidia.com/gpu" in requests:
+                    print(
+                        "[et-dflow] %s requests nvidia.com/gpu=%s"
+                        % (alg_name, requests["nvidia.com/gpu"])
+                    )
                 alg_op = AlgorithmExecutionOP()
                 alg_template = PythonOPTemplate(
                     alg_op,
                     image=docker_image,
-                    requests={
-                        "cpu": str(resources.get("cpu", 2)),
-                        "memory": resources.get("memory", "4Gi"),
-                    } if resources else None,
-                    limits={
-                        "cpu": str(resources.get("cpu", 2)),
-                        "memory": resources.get("memory", "4Gi"),
-                    } if resources else None,
+                    requests=requests,
+                    limits=limits,
                 )
                 compat_algorithm_config = {
                     **(alg_config.get("parameters", {}) or {}),
@@ -856,7 +1018,23 @@ class BaselineBenchmarkWorkflow:
         if self._hybrid:
             self._wait_hybrid_incremental(workflow, timeout=timeout)
             return
-        workflow.wait()
+        wait_error = None
+        try:
+            workflow.wait()
+        except Exception as exc:
+            wait_error = exc
+            print(f"[et-dflow] workflow.wait ended with {type(exc).__name__}: {exc}")
+        try:
+            status = workflow.query_status()
+        except Exception as exc:
+            print(f"[et-dflow] query_status after wait failed: {exc}")
+            if wait_error is not None:
+                raise wait_error
+            return
+        if status != "Succeeded":
+            _report_failed_steps(workflow, self._run_output_dir)
+        if wait_error is not None:
+            raise wait_error
 
     def _wait_hybrid_incremental(self, workflow, timeout: Optional[int] = None):
         import time
@@ -904,6 +1082,8 @@ class BaselineBenchmarkWorkflow:
                 "downloading any remaining successful algorithm artifacts before returning."
             )
         self._download_available_hybrid_results(workflow)
+        if status != "Succeeded":
+            _report_failed_steps(workflow, self._run_output_dir)
         undl = total_pairs - len(self._hybrid_downloaded_pairs)
         if undl > 0:
             wf_id = getattr(workflow, "id", None) or ""
@@ -952,6 +1132,7 @@ class BaselineBenchmarkWorkflow:
             ("reconstruction", "reconstruction.hspy"),
             ("reconstruction_npy", "reconstruction.npy"),
             ("execution_metadata", "execution_metadata.json"),
+            ("algorithm_log", "algorithm.log"),
         ):
             if key not in step.outputs.artifacts:
                 continue
@@ -970,6 +1151,8 @@ class BaselineBenchmarkWorkflow:
                     want_suffixes: Tuple[str, ...]
                     if key == "execution_metadata":
                         want_suffixes = (".json",)
+                    elif key == "algorithm_log":
+                        want_suffixes = (".log", ".txt")
                     elif key == "reconstruction_npy":
                         want_suffixes = (".npy",)
                     else:
@@ -987,6 +1170,7 @@ class BaselineBenchmarkWorkflow:
                         )
 
         _derive_reconstruction_npy_tif_from_hspy(alg_dir)
+        _echo_container_log(alg_dir, ds_key, alg_name)
 
     def download_results(self, workflow_id: str) -> Path:
         import shutil
@@ -1134,6 +1318,7 @@ class BaselineBenchmarkWorkflow:
             archive_path = Path(downloaded[0])
             with tarfile.open(archive_path, "r:gz") as tar:
                 tar.extractall(path=self._run_output_dir)
+        _echo_logs_under(self._run_output_dir)
         return self._run_output_dir
 
     def get_status(self, workflow_id: str) -> str:

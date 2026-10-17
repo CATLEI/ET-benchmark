@@ -41,6 +41,7 @@ class AlgorithmExecutionOP(OP):
             "reconstruction": Artifact(str),
             "reconstruction_npy": Artifact(str),
             "execution_metadata": Artifact(str),
+            "algorithm_log": Artifact(str),
         })
     
     @OP.exec_sign_check
@@ -59,6 +60,7 @@ class AlgorithmExecutionOP(OP):
             Output OPIO with reconstruction result
         """
         import copy
+        import sys
         import time
         import json
         import resource
@@ -92,6 +94,9 @@ class AlgorithmExecutionOP(OP):
             or algorithm_config.get("_et_dflow_dataset_metadata")
             or {}
         )
+        log_text = ""
+        log_path: Path | None = None
+        log_sections: List[str] = []
 
         try:
             execution_attempts: List[Dict[str, Any]] = []
@@ -100,6 +105,7 @@ class AlgorithmExecutionOP(OP):
             result: subprocess.CompletedProcess[str] | None = None
             selected_backend = backend
             fallback_used = False
+            log_sections: List[str] = []
             for attempt_idx in range(max_retries + 1):
                 selected_backend = str(active_config.get("backend") or selected_backend or "cpu_sirt")
                 out_ext = str(
@@ -135,12 +141,27 @@ class AlgorithmExecutionOP(OP):
                     stdin=subprocess.DEVNULL,
                 )
                 elapsed_s = time.time() - t0
+                section = self._format_attempt_log(
+                    attempt=attempt_idx + 1,
+                    command=command,
+                    result=result,
+                    elapsed_s=elapsed_s,
+                    algorithm_name=algorithm_name,
+                    docker_image=docker_image,
+                    active_config=active_config,
+                )
+                log_sections.append(section)
+                # Pod log (Bohrium UI). benchmark.log is filled later from the
+                # downloaded algorithm.log, because this print runs in the pod.
+                print(self._tail(section, limit=50_000))
                 attempt_rec = {
                     "attempt": attempt_idx + 1,
                     "backend": selected_backend,
                     "return_code": result.returncode,
                     "duration_seconds": elapsed_s,
                     "oom_detected": self._is_oom_failure(result),
+                    "stdout": self._tail(result.stdout or ""),
+                    "stderr": self._tail(result.stderr or ""),
                 }
                 execution_attempts.append(attempt_rec)
                 if result.returncode == 0:
@@ -165,12 +186,28 @@ class AlgorithmExecutionOP(OP):
                     "Algorithm execution did not start",
                     details={"algorithm": algorithm_name, "docker_image": docker_image},
                 )
+            log_text = "\n".join(log_sections)
+            log_path = output_dir / "algorithm.log"
+            log_path.write_text(log_text, encoding="utf-8")
             if result.returncode != 0:
-                error_msg = f"Algorithm execution failed with return code {result.returncode}"
-                if result.stderr:
-                    error_msg += f"\nStderr: {result.stderr}"
-                if result.stdout:
-                    error_msg += f"\nStdout: {result.stdout}"
+                error_msg = (
+                    f"Algorithm execution failed with return code {result.returncode}\n"
+                    f"{self._tail(log_text)}"
+                )
+                self._publish_failure_outputs(
+                    log_path=log_path,
+                    metadata_path=metadata_path,
+                    metadata={
+                        "algorithm": algorithm_name,
+                        "success": False,
+                        "backend": selected_backend,
+                        "docker_image": docker_image,
+                        "return_code": result.returncode,
+                        "attempts": execution_attempts,
+                        "algorithm_log": self._tail(log_text),
+                    },
+                )
+                print(error_msg, flush=True)
                 raise AlgorithmError(
                     error_msg,
                     details={
@@ -184,8 +221,24 @@ class AlgorithmExecutionOP(OP):
             
             resolved_recon = self._resolve_reconstruction_file(output_dir, reconstruction_path)
             if not resolved_recon.exists():
+                missing_msg = (
+                    "Reconstruction output not found under %s (expected %s)\n%s"
+                    % (output_dir, reconstruction_path.name, self._tail(log_text))
+                )
+                self._publish_failure_outputs(
+                    log_path=log_path,
+                    metadata_path=metadata_path,
+                    metadata={
+                        "algorithm": algorithm_name,
+                        "success": False,
+                        "docker_image": docker_image,
+                        "output_dir": str(output_dir),
+                        "algorithm_log": self._tail(log_text),
+                    },
+                )
+                print(missing_msg, flush=True)
                 raise AlgorithmError(
-                    f"Reconstruction output not found under {output_dir} (expected {reconstruction_path.name})",
+                    missing_msg,
                     details={"algorithm": algorithm_name, "output_dir": str(output_dir)},
                 )
 
@@ -221,6 +274,7 @@ class AlgorithmExecutionOP(OP):
                 "peak_rss_mb": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024.0,
                 "output_path": hspy_artifact,
                 "npy_path": str(npy_path),
+                "algorithm_log": self._tail(log_text),
             }
             
             # Save metadata (optional, for debugging/logging)
@@ -231,25 +285,121 @@ class AlgorithmExecutionOP(OP):
                 "reconstruction": hspy_artifact,  # Main output as .hspy
                 "reconstruction_npy": str(npy_path),  # Additional npy output
                 "execution_metadata": str(metadata_path),  # Path to metadata.json (Artifact expects str)
+                "algorithm_log": str(log_path),
             })
-        except subprocess.CalledProcessError as e:
-            raise AlgorithmError(
-                f"Algorithm execution failed: {e}",
-                details={
-                    "algorithm": algorithm_name,
-                    "docker_image": docker_image,
-                    "error": str(e)
-                }
-            ) from e
+        except AlgorithmError:
+            raise
         except Exception as e:
+            import traceback
+
+            tb = traceback.format_exc()
+            if not log_text and log_sections:
+                log_text = "\n".join(log_sections)
+            if log_path is None and log_text:
+                log_path = Path("/tmp/output/algorithm.log")
+                log_path.parent.mkdir(parents=True, exist_ok=True)
+                log_path.write_text(log_text, encoding="utf-8")
+            if log_path is not None and log_path.is_file():
+                self._publish_failure_outputs(
+                    log_path=log_path,
+                    metadata_path=log_path.parent / "metadata.json",
+                    metadata={
+                        "algorithm": algorithm_name,
+                        "success": False,
+                        "docker_image": docker_image,
+                        "error": str(e),
+                        "traceback": tb,
+                        "algorithm_log": self._tail(log_text),
+                    },
+                )
+            error_msg = "Algorithm execution failed: %s\n%s" % (e, tb)
+            if log_text:
+                error_msg = "%s\n%s" % (error_msg, self._tail(log_text))
+            print(error_msg, flush=True)
             raise AlgorithmError(
-                f"Algorithm execution failed: {e}",
+                error_msg,
                 details={
                     "algorithm": algorithm_name,
                     "docker_image": docker_image,
-                    "error": str(e)
-                }
+                    "error": str(e),
+                },
             ) from e
+
+    def _publish_output(self, name: str, value: str) -> None:
+        """Upload one output before a failure return, when this dflow build supports it."""
+        setter = getattr(self, "set_output", None)
+        if setter is None:
+            print(
+                "[et-dflow] dflow OP.set_output is unavailable; %s stays in the pod only"
+                % name,
+                flush=True,
+            )
+            return
+        try:
+            setter(name, value)
+            print("[et-dflow] published output %s before step exit" % name, flush=True)
+        except Exception as exc:
+            print("[et-dflow] set_output(%s) failed: %s" % (name, exc), flush=True)
+
+    def _publish_failure_outputs(self, log_path: Path, metadata_path: Path, metadata: Dict[str, Any]) -> None:
+        import json
+
+        self._publish_output("algorithm_log", str(log_path))
+        try:
+            metadata_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(metadata_path, "w", encoding="utf-8") as handle:
+                json.dump(metadata, handle, indent=2)
+            self._publish_output("execution_metadata", str(metadata_path))
+        except Exception as exc:
+            print("[et-dflow] failed to publish execution_metadata: %s" % exc, flush=True)
+
+    @staticmethod
+    def _tail(text: str, limit: int = 200_000) -> str:
+        if not text:
+            return ""
+        if len(text) <= limit:
+            return text
+        omitted = len(text) - limit
+        return f"[log truncated, omitted {omitted} chars from the start]\n" + text[-limit:]
+
+    @staticmethod
+    def _format_attempt_log(
+        attempt: int,
+        command: List[str],
+        result: "subprocess.CompletedProcess[str]",
+        elapsed_s: float,
+        algorithm_name: str,
+        docker_image: str,
+        active_config: Dict[str, Any],
+    ) -> str:
+        stdout = result.stdout or ""
+        stderr = result.stderr or ""
+        if stdout and not stdout.endswith("\n"):
+            stdout += "\n"
+        if stderr and not stderr.endswith("\n"):
+            stderr += "\n"
+        return (
+            "===== attempt %s algorithm=%s image=%s return_code=%s duration_s=%.1f =====\n"
+            "astra_algorithm=%s use_native=%s allow_placeholder=%s filter_type=%s\n"
+            "$ %s\n"
+            "----- stdout -----\n"
+            "%s"
+            "----- stderr -----\n"
+            "%s"
+        ) % (
+            attempt,
+            algorithm_name,
+            docker_image,
+            result.returncode,
+            elapsed_s,
+            active_config.get("astra_algorithm"),
+            active_config.get("use_native"),
+            active_config.get("allow_placeholder"),
+            active_config.get("filter_type"),
+            " ".join(command),
+            stdout,
+            stderr,
+        )
 
     @staticmethod
     def _reset_output_dir(output_dir: Path) -> None:

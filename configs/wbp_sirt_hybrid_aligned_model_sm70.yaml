@@ -52,8 +52,11 @@ algorithms:
     docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/astra:20260913"   # 粘贴玻尔产物
     parameters:
       use_native: true
-      astra_algorithm: "SIRT3D_CUDA"
-      astra_niter: 150
+      allow_placeholder: false
+      # Parallel3d has no FBP3D_CUDA. FBP_CUDA = Ram-Lak filter + BP3D_CUDA.
+      astra_algorithm: "FBP_CUDA"
+      filter_type: "ram-lak"
+      tilt_range: [-70, 70]
     resources:
       cpu: 8
       memory: "32Gi"

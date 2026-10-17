@@ -120,11 +120,10 @@ algorithms:
     category: "iterative"
     description: "ASTRA Toolbox for tomographic reconstruction"
     parameters:
-      iterations: 30
-      # ASTRA-specific parameters
+      astra_algorithm: "FBP_CUDA"
+      filter_type: "ram-lak"
     resources:
       cpu: 4
       memory: "8Gi"
-      gpu: 1  # ASTRA supports GPU acceleration
-    # Note: Uses Python 'astra' module, may need adapter script
+      gpu: 1  # Passed to the pod as nvidia.com/gpu
 
