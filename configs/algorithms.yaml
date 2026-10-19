@@ -52,8 +52,8 @@ algorithms:
       # GENFIRE-specific parameters
       # Add more as needed based on GENFIRE API
     resources:
-      cpu: 4
-      memory: "8Gi"
+      cpu: 16
+      memory: "64Gi"
       gpu: false
     # Note: May need adapter script if image doesn't have /app/run_algorithm.py
   
