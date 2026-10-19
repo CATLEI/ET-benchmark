@@ -3,7 +3,7 @@
 # How to use on Bohrium:
 #   1. Open 自定义镜像 / Dockerfile 构建
 #   2. Paste this entire file as the Dockerfile
-#   3. Build & push; put Image URI into yaml algorithms.tigre.docker_image
+#   3. Build & push; put Image URI into yaml algorithms.tigre_sirt.docker_image
 #
 # Optional build args (defaults match WBP):
 #   ET_DFLOW_REPO_URL  (default: https://github.com/CATLEI/ET-benchmark.git)

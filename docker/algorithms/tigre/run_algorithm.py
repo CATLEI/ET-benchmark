@@ -41,6 +41,17 @@ def main() -> int:
         config = json.loads(args.config)
         tilt_series = load_tilt_series_hspy(args.input)
         use_native = config.get("use_native", True)
+        allow_placeholder = bool(config.get("allow_placeholder", False))
+        print(
+            "TIGRE_RUN start use_native=%s has_tigre=%s allow_placeholder=%s "
+            "tigre_algorithm=%s"
+            % (
+                use_native,
+                _HAS_TIGRE,
+                allow_placeholder,
+                config.get("tigre_algorithm"),
+            )
+        )
 
         if use_native and _HAS_TIGRE:
             try:
@@ -52,31 +63,43 @@ def main() -> int:
                 result = run_tigre_reconstruction(
                     tilt_series, config, start_time=t0
                 )
+                print("TIGRE_RUN result=native")
                 print("TIGRE native reconstruction completed.")
             except Exception as exc:
+                if not allow_placeholder:
+                    print(
+                        "ERROR: TIGRE native run failed (%s); placeholder is disabled."
+                        % (exc,),
+                        file=sys.stderr,
+                    )
+                    raise
                 print(
-                    f"WARNING: TIGRE native run failed ({exc}); falling back to "
-                    "placeholder.",
+                    "WARNING: TIGRE native run failed (%s); using placeholder."
+                    % (exc,),
                     file=sys.stderr,
                 )
                 result = run_placeholder_reconstruction(
                     tilt_series,
                     config,
                     target_algorithm="TIGRE",
-                    reason=f"native error: {exc}",
+                    reason="native error: %s" % (exc,),
                 )
+                print("TIGRE_RUN result=placeholder reason=%s" % (exc,))
         else:
             reason = (
                 "tigre package missing in image"
                 if not _HAS_TIGRE
                 else "use_native is false"
             )
+            if not allow_placeholder:
+                raise RuntimeError(reason)
             result = run_placeholder_reconstruction(
                 tilt_series,
                 config,
                 target_algorithm="TIGRE",
                 reason=reason,
             )
+            print("TIGRE_RUN result=placeholder reason=%s" % (reason,))
 
         save_algorithm_result(result, args.output)
         print_run_summary(result)

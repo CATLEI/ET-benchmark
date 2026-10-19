@@ -7,6 +7,7 @@ Supports multiple datasets in one Workflow.submit() (dataset × algorithm fan-ou
 
 import json
 import re
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -32,16 +33,21 @@ def _sanitize_step_segment(name: str) -> str:
     return s[:80]
 
 
+def _scass_type(resources: Dict[str, Any]) -> str:
+    return str((resources or {}).get("scass_type") or "").strip()
+
+
 def _algorithm_container_resources(
     resources: Dict[str, Any],
 ) -> Tuple[Optional[Dict[str, str]], Optional[Dict[str, str]]]:
     """Map algorithm resources to the pod spec.
 
-    A positive ``gpu`` count is sent as ``nvidia.com/gpu`` on both requests
-    and limits. dflow forwards that dict to the Argo container, which is what
-    schedules the step onto a GPU node. The image itself does not request a GPU.
+    A Bohrium ``scass_type`` is sent by :func:`_bohrium_machine_executor` and
+    selects the machine, including GPU. cpu, memory, and ``nvidia.com/gpu``
+    are omitted in that case. Bohrium rejects ``nvidia.com/gpu``
+    (``The specified parameter Gpu is not valid``).
     """
-    if not resources:
+    if not resources or _scass_type(resources):
         return None, None
     req: Dict[str, str] = {
         "cpu": str(resources.get("cpu", 2)),
@@ -59,6 +65,248 @@ def _algorithm_container_resources(
     if gpu_count > 0:
         req["nvidia.com/gpu"] = str(gpu_count)
     return req, dict(req)
+
+
+def _access_key_from_mapping(value: Any) -> str:
+    if isinstance(value, dict):
+        for name in ("access_key", "accessKey", "ACCESS_KEY"):
+            found = value.get(name)
+            if isinstance(found, str) and found.strip():
+                return found.strip()
+        for child in value.values():
+            found = _access_key_from_mapping(child)
+            if found:
+                return found
+    return ""
+
+
+def _access_key_from_file(path: Path) -> str:
+    if not path.is_file():
+        return ""
+    text = path.read_text(encoding="utf-8", errors="replace")
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        data = None
+    if data is None:
+        try:
+            import yaml
+        except ImportError:
+            return ""
+        data = yaml.safe_load(text)
+    return _access_key_from_mapping(data)
+
+
+def _bohrium_access_key() -> str:
+    """AccessKey from the submitter. The dispatcher pod has no Bohrium login."""
+    import os
+
+    try:
+        from dflow.plugins.bohrium import config as bohrium_config
+    except ImportError:
+        bohrium_config = {}
+    candidates = [
+        bohrium_config.get("access_key") if isinstance(bohrium_config, dict) else None,
+        os.getenv("BOHRIUM_ACCESS_KEY"),
+        os.getenv("ACCESS_KEY"),
+    ]
+    for value in candidates:
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    home = Path.home()
+    for path in (
+        home / ".bohr-cli" / "config.yaml",
+        home / ".bohriumconfig",
+        home / ".bohrium" / "config.yaml",
+    ):
+        found = _access_key_from_file(path)
+        if found:
+            return found
+    raise ValueError(
+        "Bohrium AccessKey is required when resources.scass_type is set. "
+        "Export BOHRIUM_ACCESS_KEY on the submitter. "
+        "Create the key at https://bohrium.dp.tech/settings ."
+    )
+
+
+def _bohrium_machine_executor(
+    docker_image: str,
+    resources: Dict[str, Any],
+    project_id: Any,
+) -> Any:
+    """Dispatcher that submits one Bohrium job during ``workflow.submit()``.
+
+    ``machine_type`` is the yaml ``scass_type`` and becomes the job ``scassType``.
+    """
+    scass_type = _scass_type(resources)
+    if not scass_type:
+        return None
+    if project_id is None or str(project_id).strip() == "":
+        raise ValueError(
+            "dflow.bohrium_project_id is required when resources.scass_type is set"
+        )
+    access_key = _bohrium_access_key()
+    # Without private_key_file, this dflow build always adds a hostPath volume
+    # at private_key_host_path. OpenAPI jobs do not use the key.
+    key_path = Path(tempfile.gettempdir()) / "et-dflow-dispatcher-placeholder.key"
+    key_path.write_text("placeholder\n", encoding="utf-8")
+    from dflow.plugins.dispatcher import DispatcherExecutor
+
+    return _construct_dispatcher_executor(
+        DispatcherExecutor,
+        _dispatcher_executor_arguments(
+            docker_image=docker_image,
+            scass_type=scass_type,
+            project_id=int(project_id),
+            access_key=access_key,
+            private_key_file=str(key_path),
+        ),
+        access_key=access_key,
+        project_id=int(project_id),
+    )
+
+
+def _bohriumconfig_preamble(access_key: str, project_id: int) -> str:
+    """Python that runs before Machine.load_from_dict inside the dispatcher pod.
+
+    That image's OpenAPI context calls ``Client()`` with no arguments. The SDK
+    then reads ``~/.bohriumconfig`` with ``configparser``. The file it writes
+    itself is INI, not JSON::
+
+        [Credentials]
+        accessKey=...
+
+    A missing file makes it call ``input()``. A JSON file raises
+    ``MissingSectionHeaderError``. The access_key in the machine dict is ignored.
+    ``project_id`` stays in the machine dict; this file only carries the key.
+
+    The same image's ``write_home_file`` then opens
+    ``~/.dpdispatcher/dp_cloud_server/<hash>.json`` without creating the
+    directory.
+    """
+    del project_id  # machine_dict carries the project; this SDK file does not
+    ini = (
+        "[Credentials]\n"
+        "baseUrl=https://openapi.dp.tech\n"
+        "accessKey=%s\n"
+    ) % access_key
+    return (
+        "import os as _et_os\n"
+        "_et_cfg = %s\n"
+        "_et_home = _et_os.path.expanduser('~')\n"
+        "_et_os.makedirs(_et_home, exist_ok=True)\n"
+        "_et_os.makedirs(_et_os.path.join(_et_home, '.dpdispatcher', 'dp_cloud_server'), exist_ok=True)\n"
+        "for _et_name in ('.bohriumconfig', '.brmconfig'):\n"
+        "    with open(_et_os.path.join(_et_home, _et_name), 'w', encoding='utf-8') as _et_f:\n"
+        "        _et_f.write(_et_cfg)\n"
+    ) % json.dumps(ini)
+
+
+def _dispatcher_executor_arguments(
+    docker_image: str,
+    scass_type: str,
+    project_id: int,
+    access_key: str,
+    private_key_file: str,
+) -> Dict[str, Any]:
+    """Arguments for DispatcherExecutor. ``pre_script`` is optional on old dflow."""
+    return {
+        "private_key_file": private_key_file,
+        "pre_script": _bohriumconfig_preamble(access_key, project_id),
+        "machine_dict": {
+            "batch_type": "OpenAPI",
+            "context_type": "OpenAPI",
+            "remote_profile": {
+                "project_id": project_id,
+                "machine_type": scass_type,
+                "image_address": docker_image,
+                "platform": "ali",
+                "access_key": access_key,
+            },
+        },
+    }
+
+
+def _with_bohriumconfig_render(executor_cls: Any) -> Any:
+    """Prepend the config write to whatever script dflow's render produces.
+
+    Older builds store ``pre_script`` but never insert it, so ``Client()`` still
+    runs before the file exists.
+    """
+
+    class BohriumJobExecutor(executor_cls):
+        def render(self, template):
+            rendered = super().render(template)
+            preamble = _bohriumconfig_preamble(
+                self._et_access_key,
+                self._et_project_id,
+            )
+            script = getattr(rendered, "script", None) or ""
+            if "_et_cfg = " not in script:
+                rendered.script = preamble + script
+            return rendered
+
+    BohriumJobExecutor.__name__ = executor_cls.__name__
+    return BohriumJobExecutor
+
+
+def _construct_dispatcher_executor(
+    executor_cls: Any,
+    arguments: Dict[str, Any],
+    access_key: str,
+    project_id: int,
+) -> Any:
+    """Call executor_cls with only parameters that this dflow build accepts."""
+    import inspect
+
+    bound = _with_bohriumconfig_render(executor_cls)
+    params = inspect.signature(executor_cls).parameters
+    accepts_var_kw = any(
+        item.kind == inspect.Parameter.VAR_KEYWORD for item in params.values()
+    )
+    supported = arguments if accepts_var_kw else {
+        key: value for key, value in arguments.items() if key in params
+    }
+    executor = bound(**supported)
+    executor._et_access_key = access_key
+    executor._et_project_id = project_id
+    return executor
+
+
+def _volume_host_path(volume: Any) -> Any:
+    host_path = getattr(volume, "host_path", None)
+    if host_path is None and isinstance(volume, dict):
+        host_path = volume.get("hostPath") or volume.get("host_path")
+    return host_path
+
+
+def _strip_host_path_volumes(template: Any) -> None:
+    """Drop hostPath volumes. Virtual-kubelet rejects that parameter."""
+    volumes = getattr(template, "volumes", None)
+    if not volumes:
+        return
+    removed_names = set()
+    kept = []
+    for volume in volumes:
+        if _volume_host_path(volume):
+            name = getattr(volume, "name", None)
+            if name is None and isinstance(volume, dict):
+                name = volume.get("name")
+            if name:
+                removed_names.add(name)
+            continue
+        kept.append(volume)
+    template.volumes = kept
+    if not removed_names:
+        return
+    mounts = getattr(template, "mounts", None)
+    if not mounts:
+        return
+    template.mounts = [
+        mount for mount in mounts
+        if getattr(mount, "name", None) not in removed_names
+        and not (isinstance(mount, dict) and mount.get("name") in removed_names)
+    ]
 
 
 def _echo_container_log(alg_dir: Path, ds_key: str, alg_name: str) -> None:
@@ -465,6 +713,10 @@ class BaselineBenchmarkWorkflow:
         gt_path = out.get("ground_truth")
         return (out["prepared_data"], gt_path if gt_path else None)
 
+    def _machine_executor(self, docker_image: str, resources: Dict[str, Any]) -> Any:
+        project_id = (self.config.get("dflow") or {}).get("bohrium_project_id")
+        return _bohrium_machine_executor(docker_image, resources, project_id)
+
     def build_workflow(self) -> Workflow:
         datasets_items = self._enabled_dataset_items()
         algorithms_items = self._enabled_algorithms()
@@ -546,7 +798,13 @@ class BaselineBenchmarkWorkflow:
                     raise ValueError(f"Algorithm {alg_name} missing docker_image in config")
                 resources = alg_config.get("resources", {})
                 requests, limits = _algorithm_container_resources(resources)
-                if requests and "nvidia.com/gpu" in requests:
+                executor = self._machine_executor(docker_image, resources)
+                if executor is not None:
+                    print(
+                        "[et-dflow] %s Bohrium scass_type=%s via DispatcherExecutor"
+                        % (alg_name, resources.get("scass_type"))
+                    )
+                elif requests and "nvidia.com/gpu" in requests:
                     print(
                         "[et-dflow] %s requests nvidia.com/gpu=%s"
                         % (alg_name, requests["nvidia.com/gpu"])
@@ -558,6 +816,7 @@ class BaselineBenchmarkWorkflow:
                     requests=requests,
                     limits=limits,
                 )
+                _strip_host_path_volumes(alg_template)
                 step_name = f"algorithm-{_sanitize_step_segment(ds_key)}-{_sanitize_step_segment(alg_name)}"
                 compat_algorithm_config = {
                     **(alg_config.get("parameters", {}) or {}),
@@ -580,6 +839,9 @@ class BaselineBenchmarkWorkflow:
                 # dataset_key / metadata live in algorithm_config (_et_dflow_*); do not pass as
                 # separate Step parameters — older cluster et_dflow OP signatures without those
                 # keys would raise KeyError in the generated staging script.
+                step_kwargs: Dict[str, Any] = {}
+                if executor is not None:
+                    step_kwargs["executor"] = executor
                 alg_step = Step(
                     name=step_name,
                     template=alg_template,
@@ -590,6 +852,7 @@ class BaselineBenchmarkWorkflow:
                         "resources": resources,
                     },
                     artifacts={"prepared_data": prepared_artifact},
+                    **step_kwargs,
                 )
                 algorithm_steps.append(alg_step)
                 self._hybrid_pairs.append((ds_key, alg_name))
@@ -731,7 +994,13 @@ class BaselineBenchmarkWorkflow:
                     raise ValueError(f"Algorithm {alg_name} missing docker_image in config")
                 resources = alg_config.get("resources", {})
                 requests, limits = _algorithm_container_resources(resources)
-                if requests and "nvidia.com/gpu" in requests:
+                executor = self._machine_executor(docker_image, resources)
+                if executor is not None:
+                    print(
+                        "[et-dflow] %s Bohrium scass_type=%s via DispatcherExecutor"
+                        % (alg_name, resources.get("scass_type"))
+                    )
+                elif requests and "nvidia.com/gpu" in requests:
                     print(
                         "[et-dflow] %s requests nvidia.com/gpu=%s"
                         % (alg_name, requests["nvidia.com/gpu"])
@@ -743,6 +1012,7 @@ class BaselineBenchmarkWorkflow:
                     requests=requests,
                     limits=limits,
                 )
+                _strip_host_path_volumes(alg_template)
                 compat_algorithm_config = {
                     **(alg_config.get("parameters", {}) or {}),
                     "_et_dflow_dataset_key": ds_key,
@@ -767,6 +1037,9 @@ class BaselineBenchmarkWorkflow:
                     "docker_image": docker_image,
                     "resources": resources,
                 }
+                step_kwargs: Dict[str, Any] = {}
+                if executor is not None:
+                    step_kwargs["executor"] = executor
                 alg_step = Step(
                     name=f"algorithm-{san_ds}-{_sanitize_step_segment(alg_name)}",
                     template=alg_template,
@@ -774,6 +1047,7 @@ class BaselineBenchmarkWorkflow:
                     artifacts={
                         "prepared_data": dp_step.outputs.artifacts["prepared_data"],
                     },
+                    **step_kwargs,
                 )
                 algorithm_steps.append(alg_step)
                 algorithm_meta.append((ds_key, alg_name, alg_step))

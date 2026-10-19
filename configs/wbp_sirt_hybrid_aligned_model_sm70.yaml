@@ -6,7 +6,8 @@
 # Usage:
 #   et-dflow benchmark configs/wbp_sirt_hybrid_aligned_model_sm70.yaml --output-dir ./results
 #
-# Hybrid: data prep + evaluation on master; WBP and SIRT run as parallel remote pods.
+# Hybrid: data prep + evaluation on master. Remote pods: WBP, CPU SIRT,
+# ASTRA FBP_CUDA, ASTRA SIRT3D_CUDA. TIGRE SIRT stays disabled until its image URI is set.
 # Expected recon shape ~ (512, 513, 513); GT is 512^3 (align off on first run to avoid OOM).
 
 datasets:
@@ -47,9 +48,9 @@ algorithms:
       cpu: 16
       memory: "64Gi"
       gpu: false
-  astra:
+  astra_fbp:
     enabled: true
-    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/astra:20260913"   # 粘贴玻尔产物
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/astra:20261017"
     parameters:
       use_native: true
       allow_placeholder: false
@@ -60,7 +61,48 @@ algorithms:
     resources:
       cpu: 8
       memory: "32Gi"
+      # Bohrium rejects nvidia.com/gpu ("parameter Gpu is not valid").
+      # scass_type is the Bohrium machine string. DispatcherExecutor writes it
+      # to the job scassType during workflow.submit().
       gpu: 1
+      scass_type: "c16_m62_1 * NVIDIA T4"
+
+  # Same ASTRA image as FBP. 30 iterations match cpu SIRT.
+  # Tilt series (n_angles, 512, 513) -> volume (512, 513, 513).
+  astra_sirt:
+    enabled: true
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/astra:20261017"
+    parameters:
+      use_native: true
+      allow_placeholder: false
+      astra_algorithm: "SIRT3D_CUDA"
+      astra_algorithm_fallbacks: []
+      astra_niter: 30
+      astra_vol_shape: [513, 513, 512]
+      tilt_range: [-70, 70]
+    resources:
+      cpu: 8
+      memory: "32Gi"
+      gpu: 1
+      scass_type: "c16_m62_1 * NVIDIA T4"
+
+  # Same output grid as ASTRA: nVoxel is [nz, ny, nx] = (512, 513, 513).
+  # Paste the Bohrium URI from docker/algorithms/tigre/Dockerfile.bohr before submitting.
+  tigre_sirt:
+    enabled: false
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/tigre:REPLACE"
+    parameters:
+      use_native: true
+      allow_placeholder: false
+      tigre_algorithm: "sirt"
+      tigre_niter: 30
+      nVoxel: [512, 513, 513]
+      tilt_range: [-70, 70]
+    resources:
+      cpu: 8
+      memory: "32Gi"
+      gpu: 1
+      scass_type: "c16_m62_1 * NVIDIA T4"
 evaluation:
   metrics:
     - "psnr"

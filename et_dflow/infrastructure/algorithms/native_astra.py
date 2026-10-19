@@ -219,11 +219,16 @@ def run_astra_parallel3d(
         else:
             proj_id = astra.data3d.create("-sino", proj_geom, sino)
             rec_id = astra.data3d.create("-vol", vol_geom, 0.0)
-            fallbacks: List[str] = list(config.get("astra_algorithm_fallbacks") or [])
-            to_try: List[str] = [requested] + [n for n in fallbacks if n != requested]
-            for name in ("SIRT3D_CUDA", "CGLS3D_CUDA", "SIRT3D", "CGLS3D"):
-                if name not in to_try:
-                    to_try.append(name)
+            # An explicit list, including [], tries only those names. Omitting the
+            # key keeps the previous CUDA-then-CPU chain.
+            if "astra_algorithm_fallbacks" in config:
+                fallbacks = list(config.get("astra_algorithm_fallbacks") or [])
+                to_try = [requested] + [n for n in fallbacks if n != requested]
+            else:
+                to_try = [requested]
+                for name in ("SIRT3D_CUDA", "CGLS3D_CUDA", "SIRT3D", "CGLS3D"):
+                    if name not in to_try:
+                        to_try.append(name)
 
             for algo_name in to_try:
                 try:

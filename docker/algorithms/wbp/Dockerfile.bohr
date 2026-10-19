@@ -43,9 +43,10 @@ RUN git clone "${ET_DFLOW_REPO_URL}" repo && \
 
 WORKDIR /build/repo
 
-# Install Python dependencies and then install ET-dflow itself.
+# Algorithm runtime only. The full requirements.txt also installs pyvista/VTK,
+# sphinx, and test tools; VTK often compiles for hours and then fails the build.
 RUN pip install --no-cache-dir --timeout 300 \
-    -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt && \
+    -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements-etdflow-algorithm.txt && \
     pip install --no-cache-dir --timeout 300 \
     -i https://pypi.tuna.tsinghua.edu.cn/simple --no-deps .
 
