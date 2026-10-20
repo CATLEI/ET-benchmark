@@ -1,9 +1,13 @@
 # WUCon thin image for Bohr Station custom-image UI (same workflow as wbp/Dockerfile.bohr).
 #
 # How to use on Bohrium:
-#   1. Open 自定义镜像 / Dockerfile 构建
-#   2. Paste this entire file as the Dockerfile
-#   3. Build & push; put Image URI into yaml algorithms.wucon.docker_image
+#   1. Push adapter automation to main first (this Dockerfile clones that ref)
+#   2. Open 自定义镜像 / Dockerfile 构建
+#   3. Paste this entire file as the Dockerfile
+#   4. Build & push; put Image URI into yaml algorithms.wucon.docker_image
+#   5. Native path: stage etbench prj.mrc+.tlt → patch /opt/wucon/src →
+#      recon_chunk mid (+ optional full y-sweep) → mrc/out.mrc
+#      First run: wucon_recon_subset: true (smoke). Full volume: set false.
 #
 # Optional build args (defaults match WBP):
 #   ET_DFLOW_REPO_URL  (default: https://github.com/CATLEI/ET-benchmark.git)

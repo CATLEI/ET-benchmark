@@ -2,8 +2,14 @@
 """
 WUCon adapter.
 
-Native mode runs ``wucon_argv`` subprocess then loads output volume.
-Otherwise WBP/SIRT stand-in (``placeholder_backend``).
+Default native path (``use_native: true``): stage tilt series as WUCON
+``etbench`` inputs, patch upstream ``src``, run ``recon_chunk`` (mid, then
+optional full y-sweep), assemble ``mrc/out.mrc``.
+
+Set ``wucon_pipeline: false`` and ``wucon_argv`` for a single custom CLI.
+
+``allow_placeholder: false`` (default): missing source or any native error
+exits 1 (no WBP stand-in).
 """
 
 from __future__ import annotations
@@ -34,18 +40,38 @@ def main() -> int:
         config = json.loads(args.config)
         tilt_series = load_tilt_series_hspy(args.input)
         use_native = config.get("use_native", True)
-        has_argv = bool(config.get("wucon_argv"))
+        allow_placeholder = bool(config.get("allow_placeholder", False))
+        print(
+            "WUCON_RUN start use_native=%s allow_placeholder=%s wucon_pipeline=%s"
+            % (
+                use_native,
+                allow_placeholder,
+                config.get("wucon_pipeline", True),
+            ),
+            flush=True,
+        )
 
-        if use_native and has_argv:
+        if use_native:
             try:
                 from et_dflow.infrastructure.algorithms.native_wucon import (
-                    run_wucon_cli,
+                    run_wucon_reconstruction,
                 )
 
                 t0 = time.time()
-                result = run_wucon_cli(tilt_series, config, start_time=t0)
-                print("WUCon CLI step completed.")
+                result = run_wucon_reconstruction(
+                    tilt_series, config, start_time=t0
+                )
+                print("WUCON_RUN result=native")
+                print("WUCon native reconstruction completed.")
             except Exception as exc:
+                if not allow_placeholder:
+                    print(
+                        "ERROR: WUCon native run failed (%s); "
+                        "placeholder is disabled."
+                        % (exc,),
+                        file=sys.stderr,
+                    )
+                    raise
                 print(
                     "WARNING: WUCon native run failed (%s); using placeholder."
                     % (exc,),
@@ -57,18 +83,18 @@ def main() -> int:
                     target_algorithm="WUCon",
                     reason="native error: %s" % (exc,),
                 )
+                print("WUCON_RUN result=placeholder reason=%s" % (exc,))
         else:
-            reason = (
-                "wucon_argv not set (native needs CLI + output paths)"
-                if not has_argv
-                else "use_native is false"
-            )
+            reason = "use_native is false"
+            if not allow_placeholder:
+                raise RuntimeError(reason)
             result = run_placeholder_reconstruction(
                 tilt_series,
                 config,
                 target_algorithm="WUCon",
                 reason=reason,
             )
+            print("WUCON_RUN result=placeholder reason=%s" % (reason,))
 
         save_algorithm_result(result, args.output)
         print_run_summary(result)
