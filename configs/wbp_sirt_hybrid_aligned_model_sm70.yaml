@@ -138,6 +138,26 @@ algorithms:
       memory: "64Gi"
       gpu: 1
       scass_type: "c16_m62_1 * NVIDIA T4"
+
+  # In-container WBP (IsoNet input) + prepare_star/extract/refine/predict.
+  # isonet_pixel_size is Å/pixel (IsoNet default recommendation ~10); override when
+  # the sm70 dataset documents a real value. Paste Dockerfile.bohr URI before enable.
+  isonet:
+    enabled: false
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/isonet:REPLACE"
+    parameters:
+      use_native: true
+      allow_placeholder: false
+      isonet_pipeline: true
+      isonet_pixel_size: 10.0
+      isonet_iterations: 5
+      isonet_number_subtomos: 100
+      tilt_range: [-70, 70]
+    resources:
+      cpu: 8
+      memory: "64Gi"
+      gpu: 1
+      scass_type: "c16_m62_1 * NVIDIA T4"
 evaluation:
   metrics:
     - "psnr"

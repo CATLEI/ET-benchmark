@@ -1,10 +1,12 @@
 # IsoNet thin image for Bohr Station custom-image UI (same workflow as wbp/Dockerfile.bohr).
 #
 # How to use on Bohrium:
-#   1. Open 自定义镜像 / Dockerfile 构建
-#   2. Paste this entire file as the Dockerfile
-#   3. Build & push; put Image URI into yaml algorithms.isonet.docker_image
-#   4. Native run needs isonet_argv + output path in yaml parameters
+#   1. Push adapter changes to main first (this Dockerfile clones that ref)
+#   2. Open 自定义镜像 / Dockerfile 构建
+#   3. Paste this entire file as the Dockerfile
+#   4. Build & push; put Image URI into yaml algorithms.isonet.docker_image
+#   5. Native path: in-container WBP → prepare_star → extract → refine → predict
+#      (set isonet_pixel_size / isonet_iterations in yaml; allow_placeholder: false)
 #
 # Optional build args (defaults match WBP):
 #   ET_DFLOW_REPO_URL  (default: https://github.com/CATLEI/ET-benchmark.git)
