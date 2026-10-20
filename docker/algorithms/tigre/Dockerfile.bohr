@@ -30,7 +30,18 @@ RUN git clone "${ET_DFLOW_REPO_URL}" repo && \
 
 WORKDIR /tmp/etdflow-build/repo
 
-RUN python -m pip install --no-cache-dir --timeout 300 \
+# Base davinci/tigre often ships only ``python3`` (no ``python`` on PATH).
+# Entrypoint and pip steps both expect ``python``.
+RUN if ! command -v python >/dev/null 2>&1; then \
+      PY=""; \
+      for c in python3 /usr/local/bin/python3 /usr/bin/python3 \
+               /opt/conda/bin/python /root/miniconda3/bin/python; do \
+        if command -v "$c" >/dev/null 2>&1 || [ -x "$c" ]; then PY="$c"; break; fi; \
+      done; \
+      if [ -z "$PY" ]; then echo "No python/python3 found in base image" >&2; exit 1; fi; \
+      ln -sf "$(command -v "$PY" 2>/dev/null || echo "$PY")" /usr/local/bin/python; \
+    fi && \
+    python -m pip install --no-cache-dir --timeout 300 \
     -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements-etdflow-algorithm.txt && \
     python -m pip install --no-cache-dir --timeout 300 \
     -i https://pypi.tuna.tsinghua.edu.cn/simple --no-deps .
