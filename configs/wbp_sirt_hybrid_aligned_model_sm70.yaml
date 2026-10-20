@@ -7,7 +7,7 @@
 #   et-dflow benchmark configs/wbp_sirt_hybrid_aligned_model_sm70.yaml --output-dir ./results
 #
 # Hybrid: data prep + evaluation on master. Remote pods: WBP, CPU SIRT,
-# ASTRA FBP_CUDA, ASTRA SIRT3D_CUDA. TIGRE SIRT and CPU GENFIRE stay disabled until their image URIs are set.
+# ASTRA FBP_CUDA, ASTRA SIRT3D_CUDA. TIGRE / GENFIRE / DeepDeWedge stay disabled until image URIs are set.
 # Expected recon shape ~ (512, 513, 513); GT is 512^3 (align off on first run to avoid OOM).
 
 datasets:
@@ -120,6 +120,24 @@ algorithms:
       cpu: 16
       memory: "64Gi"
       gpu: false
+
+  # Even/odd ramp FBP + ddw prepare/fit/refine inside one GPU pod.
+  # mw_angle is derived as 180-(α_max-α_min); do not copy missing_wedge_angle: 70.
+  # Paste the Bohrium URI from docker/algorithms/deepdewedge/Dockerfile.bohr first.
+  deepdewedge:
+    enabled: false
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/deepdewedge:REPLACE"
+    parameters:
+      use_native: true
+      allow_placeholder: false
+      ddw_pipeline: true
+      ddw_num_epochs: 5
+      tilt_range: [-70, 70]
+    resources:
+      cpu: 8
+      memory: "64Gi"
+      gpu: 1
+      scass_type: "c16_m62_1 * NVIDIA T4"
 evaluation:
   metrics:
     - "psnr"
