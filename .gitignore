@@ -1,0 +1,21 @@
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+
+# macOS AppleDouble noise sometimes next to caches
+.___pycache__
+**/.___pycache__
+._*
+
+# Virtual environments / tooling
+.venv/
+venv/
+.env
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
