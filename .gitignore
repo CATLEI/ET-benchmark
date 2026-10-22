@@ -19,3 +19,7 @@ venv/
 *.egg-info/
 dist/
 build/
+
+# Local figure / PPT outputs
+out/
+
