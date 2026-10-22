@@ -29,6 +29,11 @@ algorithms:
       filter_type: "ramp"
       filter_cutoff: 1.0
       Nrecon: 513
+      output_to_gt:
+        axes_order: [1, 2, 0]
+        flip_axes: [2]
+        trim: leading
+        target_shape: [512, 512, 512]
     resources:
       cpu: 4
       memory: "16Gi"
@@ -39,9 +44,9 @@ evaluation:
     - "psnr"
     - "ssim"
     - "mse"
-  align_reconstruction: true
+  # Master applies output_to_gt after download; keep eval align off.
+  align_reconstruction: false
   align_target_shape: [512, 512, 512]
-  align_max_shift: 8
 
 workflow:
   name: "aligned-model-sm70-wbp"

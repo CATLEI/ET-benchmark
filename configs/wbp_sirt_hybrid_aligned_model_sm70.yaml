@@ -30,6 +30,12 @@ algorithms:
       filter_type: "ramp"
       filter_cutoff: 1.0
       Nrecon: 513
+      # Master-side native→GT (ImageJ / proj_eval reslice); no image rebuild.
+      output_to_gt:
+        axes_order: [1, 2, 0]
+        flip_axes: [2]
+        trim: leading
+        target_shape: [512, 512, 512]
     resources:
       cpu: 4
       memory: "16Gi"
@@ -44,6 +50,9 @@ algorithms:
       relaxation_factor: 0.5
       update_method: "landweber"
       dtype: "float32"
+      # Rebuild quality first; enable after calibrate_output_to_gt.py.
+      output_to_gt:
+        enabled: false
     resources:
       cpu: 16
       memory: "64Gi"
@@ -58,6 +67,12 @@ algorithms:
       astra_algorithm: "FBP_CUDA"
       filter_type: "ram-lak"
       tilt_range: [-70, 70]
+      # Identity axes for now (do not copy WBP ImageJ recipe). Calibrate later.
+      output_to_gt:
+        axes_order: [0, 1, 2]
+        flip_axes: []
+        trim: leading
+        target_shape: [512, 512, 512]
     resources:
       cpu: 8
       memory: "32Gi"
@@ -80,6 +95,11 @@ algorithms:
       astra_niter: 30
       astra_vol_shape: [513, 513, 512]
       tilt_range: [-70, 70]
+      output_to_gt:
+        axes_order: [0, 1, 2]
+        flip_axes: []
+        trim: leading
+        target_shape: [512, 512, 512]
     resources:
       cpu: 8
       memory: "32Gi"
@@ -183,11 +203,12 @@ evaluation:
     - "psnr"
     - "ssim"
     - "mse"
-  # First run: false to avoid master OOM/Killed on dual-volume eval.
-  # Set true (+ enough RAM) for fine alignment onto GT 512^3.
+  # Geometry: algorithms.*.parameters.output_to_gt on the hybrid master after
+  # download (and via scripts/reeval_from_run_dir.py). Keep align off to avoid
+  # a second transform. Reeval without re-running algorithms:
+  #   python scripts/reeval_from_run_dir.py --run-dir results/<ts> --config <this>
   align_reconstruction: false
   align_target_shape: [512, 512, 512]
-  align_max_shift: 8
 
 workflow:
   name: "aligned-model-sm70-wbp-sirt"

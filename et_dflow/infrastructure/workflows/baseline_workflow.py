@@ -1444,7 +1444,50 @@ class BaselineBenchmarkWorkflow:
                         )
 
         _derive_reconstruction_npy_tif_from_hspy(alg_dir)
+        self._apply_output_to_gt_if_configured(ds_key, alg_name, alg_dir)
         _echo_container_log(alg_dir, ds_key, alg_name)
+
+    def _apply_output_to_gt_if_configured(
+        self, ds_key: str, alg_name: str, alg_dir: Path
+    ) -> None:
+        """Master-side native→GT transform (no algorithm image rebuild)."""
+        from et_dflow.domain.evaluation.volume_alignment import (
+            apply_output_to_gt_file,
+            output_to_gt_enabled,
+            resolve_algorithm_output_to_gt,
+        )
+
+        geom = resolve_algorithm_output_to_gt(self.config, alg_name)
+        if not output_to_gt_enabled(geom):
+            return
+        recon = alg_dir / "reconstruction.hspy"
+        if not recon.is_file():
+            return
+        # Fill target_shape from evaluation / dataset metadata when omitted.
+        geom = dict(geom or {})
+        if not geom.get("target_shape"):
+            eval_cfg = self.config.get("evaluation") or {}
+            ts = eval_cfg.get("align_target_shape")
+            if not ts:
+                ds_cfg = (self.config.get("datasets") or {}).get(ds_key) or {}
+                ts = (ds_cfg.get("metadata") or {}).get("gt_shape")
+            if ts and len(ts) == 3:
+                geom["target_shape"] = list(ts)
+        try:
+            meta = apply_output_to_gt_file(recon, geom, force_from_native=True)
+            print(
+                f"[et-dflow] output_to_gt {ds_key}/{alg_name}: "
+                f"applied={meta.get('applied')} "
+                f"before={meta.get('reconstruction_shape_before')} "
+                f"after={meta.get('reconstruction_shape_after')}"
+            )
+            if meta.get("applied"):
+                _derive_reconstruction_npy_tif_from_hspy(alg_dir)
+        except Exception as exc:
+            print(
+                f"[et-dflow] output_to_gt failed for {ds_key}/{alg_name}: {exc!r}"
+            )
+            raise
 
     def download_results(self, workflow_id: str) -> Path:
         import shutil
@@ -1471,6 +1514,11 @@ class BaselineBenchmarkWorkflow:
         metrics_list = eval_config.get("metrics", ["psnr", "ssim", "mse"])
 
         self._download_available_hybrid_results(workflow)
+
+        # Replay output_to_gt for every downloaded pair (idempotent via native backup).
+        for ds_key, alg_name in list(self._hybrid_downloaded_pairs):
+            alg_dir = _hybrid_dataset_alg_dir(self._run_output_dir, ds_key, alg_name)
+            self._apply_output_to_gt_if_configured(ds_key, alg_name, alg_dir)
 
         print(
             "[et-dflow] Hybrid: running local evaluation and comparison "
@@ -1515,6 +1563,8 @@ class BaselineBenchmarkWorkflow:
                 "metrics_file": str(metrics_file),
                 "dataset_key": ds_key,
                 "suite_metadata": suite_meta,
+                # Same as remote EvaluationOP: YAML evaluation.* (align_*) must reach the OP.
+                "evaluation_config": eval_config,
             })
             _prep, gt_path = self._hybrid_local_by_ds.get(ds_key, (None, None))
             if gt_path and os.path.exists(gt_path):

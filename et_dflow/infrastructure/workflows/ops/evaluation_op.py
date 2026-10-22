@@ -101,11 +101,22 @@ class EvaluationOP(OP):
                 target_shape = _target_shape(evaluation_config, ground_truth)
                 if evaluation_config.get("align_reconstruction", False):
                     max_shift = int(evaluation_config.get("align_max_shift", 8))
+                    refine_max_shift = int(
+                        evaluation_config.get("align_refine_max_shift", 4)
+                    )
+                    # fixed | ncc | center — default ncc preserves prior behavior.
+                    align_strategy = str(
+                        evaluation_config.get("align_strategy", "ncc")
+                    ).strip().lower()
+                    align_fixed = dict(evaluation_config.get("align_fixed") or {})
                     recon_for_metrics, align_meta = align_reconstruction_signal(
                         reconstruction,
                         ground_truth,
                         target_shape=target_shape,
                         max_shift=max_shift,
+                        strategy=align_strategy,
+                        align_fixed=align_fixed,
+                        refine_max_shift=refine_max_shift,
                     )
                     metrics_dir = Path(str(op_in["metrics_file"])).parent
                     aligned_path = metrics_dir / "reconstruction_aligned.hspy"
