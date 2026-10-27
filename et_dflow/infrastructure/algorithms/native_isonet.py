@@ -84,19 +84,81 @@ def _run_isonet(
 ) -> None:
     cmd = [isonet_bin, *args]
     print("ISONET_RUN step=%s cmd=%s" % (args[0], " ".join(cmd)), flush=True)
-    subprocess.run(cmd, cwd=str(cwd), env=env, check=True)
+    # Stream output (refine can be long). IsoNet may still exit 0 after internal
+    # failures; callers must validate expected artifacts after each step.
+    proc = subprocess.run(cmd, cwd=str(cwd), env=env, check=False)
+    if proc.returncode != 0:
+        raise RuntimeError(
+            "IsoNet step %r failed with exit %s" % (args[0], proc.returncode)
+        )
+
+
+def _count_star_data_rows(star_path: Path) -> int:
+    """Count non-header data rows in a Relion-style star (rough but enough)."""
+    if not star_path.is_file():
+        return 0
+    count = 0
+    in_data = False
+    for line in star_path.read_text(encoding="utf-8", errors="replace").splitlines():
+        s = line.strip()
+        if not s:
+            continue
+        if s.startswith("data_"):
+            in_data = True
+            continue
+        if not in_data:
+            continue
+        if s.startswith("loop_") or s.startswith("_") or s.startswith("#"):
+            continue
+        count += 1
+    return count
+
+
+def _brief_dir_listing(path: Path, *, limit: int = 40) -> str:
+    if not path.exists():
+        return "%s (missing)" % path
+    if not path.is_dir():
+        return "%s (not a directory)" % path
+    entries = sorted(path.iterdir(), key=lambda p: p.name)
+    if not entries:
+        return "%s (empty)" % path
+    lines = []
+    for p in entries[:limit]:
+        kind = "dir" if p.is_dir() else "file"
+        lines.append("  %s %s" % (kind, p.name))
+    if len(entries) > limit:
+        lines.append("  ... (%d more)" % (len(entries) - limit))
+    return "%s:\n%s" % (path, "\n".join(lines))
 
 
 def _find_model_checkpoint(result_dir: Path, iterations: int) -> Path:
-    preferred = result_dir / ("model_iter%d.h5" % iterations)
+    # IsoNet saves zero-padded names: model_iter05.h5 for iterations=5.
+    preferred = result_dir / ("model_iter%02d.h5" % iterations)
     if preferred.is_file():
         return preferred
+    # Also accept unpadded legacy names.
+    alt = result_dir / ("model_iter%d.h5" % iterations)
+    if alt.is_file():
+        return alt
     candidates = sorted(result_dir.glob("model_iter*.h5"))
     if not candidates:
         candidates = sorted(result_dir.glob("*.h5"))
     if not candidates:
+        log_txt = result_dir.parent / "log.txt"
+        log_hint = ""
+        if log_txt.is_file():
+            tail = log_txt.read_text(encoding="utf-8", errors="replace")[-2000:]
+            log_hint = "\nIsoNet log.txt tail:\n%s" % tail
         raise FileNotFoundError(
-            "No IsoNet model .h5 under %s after refine" % result_dir
+            "No IsoNet model .h5 under %s after refine. "
+            "IsoNet often exits 0 even when refine fails (empty subtomos, "
+            "GPU/TF error swallowed in refine.py). Expected %s.\n%s%s"
+            % (
+                result_dir,
+                preferred.name,
+                _brief_dir_listing(result_dir),
+                log_hint,
+            )
         )
     chosen = max(candidates, key=lambda p: p.stat().st_mtime)
     print(
@@ -212,7 +274,9 @@ def run_isonet_reconstruction(
     corrected_dir = work_root / "corrected_tomos"
 
     env = {**os.environ, **(config.get("isonet_env") or {})}
-    # Fire accepts --flag=False for booleans.
+    # Do NOT pass ``--use_deconv_tomo=False``: Fire in some IsoNet images treats
+    # that token as unrecognized and extract never writes subtomo.star. Default
+    # True is safe when prepare_star did not run deconv (falls back to raw tomo).
     old_cwd = os.getcwd()
     try:
         os.chdir(str(work_root))
@@ -242,11 +306,43 @@ def run_isonet_reconstruction(
                 str(subtomo_star),
                 "--cube_size",
                 str(cube_size),
-                "--use_deconv_tomo=False",
             ],
             cwd=work_root,
             env=env,
         )
+        if not subtomo_star.is_file():
+            raise RuntimeError(
+                "IsoNet extract did not create %s. "
+                "Refine will swallow FileNotFoundError and exit 0 with no .h5. "
+                "Volume shape=%s cube_size=%s.\n%s\n%s"
+                % (
+                    subtomo_star,
+                    vol.shape,
+                    cube_size,
+                    _brief_dir_listing(work_root / "subtomo"),
+                    _brief_dir_listing(work_root),
+                )
+            )
+        n_subtomo = _count_star_data_rows(subtomo_star)
+        print(
+            "ISONET_RUN step=extract-check subtomo_star=%s n_rows=%d cube_size=%d"
+            % (subtomo_star, n_subtomo, cube_size),
+            flush=True,
+        )
+        if n_subtomo < 1:
+            raise RuntimeError(
+                "IsoNet extract produced an empty subtomo list (%s). "
+                "Refine will exit 0 without writing any model. "
+                "Try a larger tomogram, smaller isonet_cube_size, or fewer "
+                "isonet_number_subtomos. Volume shape=%s cube_size=%s.\n%s\n%s"
+                % (
+                    subtomo_star,
+                    vol.shape,
+                    cube_size,
+                    _brief_dir_listing(work_root / "subtomo"),
+                    _brief_dir_listing(work_root),
+                )
+            )
         _run_isonet(
             isonet_bin,
             [
@@ -280,7 +376,6 @@ def run_isonet_reconstruction(
                 str(cube_size),
                 "--crop_size",
                 str(crop_size),
-                "--use_deconv_tomo=False",
             ],
             cwd=work_root,
             env=env,
