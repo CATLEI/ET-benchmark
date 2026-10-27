@@ -9,8 +9,12 @@ Config (optional, JSON/YAML ``parameters``):
 
 - ``tigre_algorithm``: ``"fdk"`` (default), ``"ossart"``, or ``"sirt"``
 - ``tigre_niter``, ``tigre_blocksize``: iterations / block for OS-SART
-- ``nVoxel``: length-3 list ``[nz, ny, nx]``; default cube from max(detector H, W)
+- ``nVoxel``: length-3 list for TIGRE ``ParallelGeo`` (often ``[nx, ny, nz]``);
+  default cube from max(detector H, W)
 - ``tigre_gpu_id``: int GPU index (default ``0``)
+
+Detector layout: tilt series is ``(n_tilts, H, W)``. TIGRE ``Ax`` returns
+``(n_angles, nDetector[0], nDetector[1])``, so ``nDetector`` must be ``[H, W]``.
 """
 
 from __future__ import annotations
@@ -27,6 +31,11 @@ from et_dflow.infrastructure.algorithms.adapter_common import (
     make_adapter_algorithm_result,
     numpy_volume_to_signal2d,
 )
+
+
+def tigre_n_detector_from_proj_hw(det_h: int, det_w: int) -> np.ndarray:
+    """Map ``(H, W)`` frames to TIGRE ``geo.nDetector`` for ``Ax`` shape match."""
+    return np.array([int(det_h), int(det_w)], dtype=np.int32)
 
 
 def run_tigre_reconstruction(
@@ -62,7 +71,9 @@ def run_tigre_reconstruction(
         nVoxel=n_voxel,
         default=True,
     )
-    geo.nDetector = np.array([det_w, det_h], dtype=np.int32)
+    # Must be [H, W]: Ax uses (n_angles, nDetector[0], nDetector[1]).
+    # Old [W, H] caused SIRT ValueError (141,512,513) vs (141,513,512).
+    geo.nDetector = tigre_n_detector_from_proj_hw(det_h, det_w)
     geo.dDetector = np.array([1.0, 1.0], dtype=np.float32)
     geo.sDetector = geo.nDetector.astype(np.float32) * geo.dDetector
 
