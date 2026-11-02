@@ -37,6 +37,78 @@ def _scass_type(resources: Dict[str, Any]) -> str:
     return str((resources or {}).get("scass_type") or "").strip()
 
 
+def _dflow_section(config: Dict[str, Any]) -> Dict[str, Any]:
+    section = config.get("dflow") or {}
+    return section if isinstance(section, dict) else {}
+
+
+def _bohrium_job_group_enabled(config: Dict[str, Any]) -> bool:
+    """Default true: one Bohrium job group per benchmark submit when using scass."""
+    val = _dflow_section(config).get("bohrium_job_group", True)
+    if isinstance(val, str):
+        return val.strip().lower() not in ("0", "false", "no", "off")
+    return bool(val)
+
+
+def _force_scass_for_all_algorithms(config: Dict[str, Any]) -> bool:
+    """Default true: fill missing scass_type so CPU algorithms join the job group."""
+    val = _dflow_section(config).get("force_scass_for_all_algorithms", True)
+    if isinstance(val, str):
+        return val.strip().lower() not in ("0", "false", "no", "off")
+    return bool(val)
+
+
+def _default_scass_type(config: Dict[str, Any]) -> str:
+    raw = _dflow_section(config).get("default_scass_type") or "c16_m32_cpu"
+    return str(raw).strip() or "c16_m32_cpu"
+
+
+def _resources_with_scass(
+    resources: Optional[Dict[str, Any]],
+    config: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Copy resources; optionally fill scass_type from dflow.default_scass_type."""
+    out = dict(resources or {})
+    if _scass_type(out):
+        return out
+    if not _force_scass_for_all_algorithms(config):
+        return out
+    out["scass_type"] = _default_scass_type(config)
+    return out
+
+
+def _bohrium_job_name(workflow_name: str, ds_key: str, alg_name: str) -> str:
+    """Readable Bohrium job_name; keep underscores (unlike Argo step names)."""
+
+    def _seg(raw: str) -> str:
+        s = str(raw).strip().lower()
+        s = re.sub(r"[^a-z0-9_-]+", "-", s)
+        return s.strip("-_") or "x"
+
+    parts = [_seg(workflow_name), _seg(ds_key), _seg(alg_name)]
+    return "-".join(p for p in parts if p)[:120]
+
+
+def _create_bohrium_job_group(group_name: str, config: Dict[str, Any]) -> int:
+    """Create one Bohrium job group on the submitter; return numeric groupId."""
+    dflow_section = _dflow_section(config)
+    project_id = dflow_section.get("bohrium_project_id")
+    if project_id is None or str(project_id).strip() == "":
+        raise ValueError(
+            "dflow.bohrium_project_id is required to create a Bohrium job group"
+        )
+    # Ensure AccessKey is resolvable before create_job_group (uses bohrium.config).
+    access_key = _bohrium_access_key()
+    from dflow.plugins import bohrium as bohrium_plugin
+
+    if not bohrium_plugin.config.get("access_key"):
+        bohrium_plugin.config["access_key"] = access_key
+    if not bohrium_plugin.config.get("project_id"):
+        bohrium_plugin.config["project_id"] = str(project_id)
+    group_id = bohrium_plugin.create_job_group(group_name)
+    return int(group_id)
+
+
 def _algorithm_container_resources(
     resources: Dict[str, Any],
 ) -> Tuple[Optional[Dict[str, str]], Optional[Dict[str, str]]]:
@@ -133,10 +205,14 @@ def _bohrium_machine_executor(
     docker_image: str,
     resources: Dict[str, Any],
     project_id: Any,
+    *,
+    job_group_id: Optional[int] = None,
+    job_name: Optional[str] = None,
 ) -> Any:
     """Dispatcher that submits one Bohrium job during ``workflow.submit()``.
 
     ``machine_type`` is the yaml ``scass_type`` and becomes the job ``scassType``.
+    When ``job_group_id`` is set, all jobs in one benchmark share that group.
     """
     scass_type = _scass_type(resources)
     if not scass_type:
@@ -160,6 +236,8 @@ def _bohrium_machine_executor(
             project_id=int(project_id),
             access_key=access_key,
             private_key_file=str(key_path),
+            job_group_id=job_group_id,
+            job_name=job_name,
         ),
         access_key=access_key,
         project_id=int(project_id),
@@ -208,30 +286,90 @@ def _dispatcher_executor_arguments(
     project_id: int,
     access_key: str,
     private_key_file: str,
+    job_group_id: Optional[int] = None,
+    job_name: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Arguments for DispatcherExecutor. ``pre_script`` is optional on old dflow."""
+    remote_profile: Dict[str, Any] = {
+        "project_id": project_id,
+        "machine_type": scass_type,
+        "image_address": docker_image,
+        "platform": "ali",
+        "access_key": access_key,
+    }
+    if job_name:
+        remote_profile["job_name"] = str(job_name)
+    if job_group_id is not None:
+        # OpenAPI Job.insert / Bohrium UI group. Also keep bohr_* alias.
+        remote_profile["job_group_id"] = int(job_group_id)
+        remote_profile["bohr_job_group_id"] = int(job_group_id)
     return {
         "private_key_file": private_key_file,
         "pre_script": _bohriumconfig_preamble(access_key, project_id),
         "machine_dict": {
             "batch_type": "OpenAPI",
             "context_type": "OpenAPI",
-            "remote_profile": {
-                "project_id": project_id,
-                "machine_type": scass_type,
-                "image_address": docker_image,
-                "platform": "ali",
-                "access_key": access_key,
-            },
+            "remote_profile": remote_profile,
         },
     }
+
+
+_JOB_GROUP_PATCH = """
+def _et_patch_job_group(machine):
+    rp = getattr(machine, "remote_profile", None) or {}
+    if not isinstance(rp, dict):
+        return machine
+    gid = rp.get("job_group_id") or rp.get("bohr_job_group_id")
+    if not gid:
+        return machine
+    job = getattr(machine, "job", None)
+    if job is None or not hasattr(job, "insert"):
+        return machine
+    _orig = job.insert
+    def _insert(*_a, **_kw):
+        _kw = dict(_kw)
+        if "job_group_id" not in _kw and "jobGroupId" not in _kw:
+            _kw["job_group_id"] = gid
+        try:
+            return _orig(*_a, **_kw)
+        except TypeError as _exc:
+            msg = str(_exc).lower()
+            if "job_group_id" not in msg and "unexpected" not in msg:
+                raise
+            _kw.pop("job_group_id", None)
+            _kw["jobGroupId"] = gid
+            return _orig(*_a, **_kw)
+    job.insert = _insert
+    return machine
+"""
+
+
+def _inject_job_group_patch(script: str) -> str:
+    """After Machine.load_from_dict, wrap machine so Job.insert gets job_group_id."""
+    if "_et_patch_job_group" in script:
+        return script
+    marker = "machine = Machine.load_from_dict"
+    idx = script.find(marker)
+    if idx < 0:
+        return script
+    line_end = script.find("\n", idx)
+    if line_end < 0:
+        line_end = len(script)
+    load_line = script[idx:line_end]
+    patched_load = (
+        _JOB_GROUP_PATCH
+        + "\n"
+        + load_line
+        + "\nmachine = _et_patch_job_group(machine)"
+    )
+    return script[:idx] + patched_load + script[line_end:]
 
 
 def _with_bohriumconfig_render(executor_cls: Any) -> Any:
     """Prepend the config write to whatever script dflow's render produces.
 
     Older builds store ``pre_script`` but never insert it, so ``Client()`` still
-    runs before the file exists.
+    runs before the file exists. Also inject OpenAPI job_group_id into Job.insert.
     """
 
     class BohriumJobExecutor(executor_cls):
@@ -243,7 +381,9 @@ def _with_bohriumconfig_render(executor_cls: Any) -> Any:
             )
             script = getattr(rendered, "script", None) or ""
             if "_et_cfg = " not in script:
-                rendered.script = preamble + script
+                script = preamble + script
+            script = _inject_job_group_patch(script)
+            rendered.script = script
             return rendered
 
     BohriumJobExecutor.__name__ = executor_cls.__name__
@@ -584,6 +724,7 @@ class BaselineBenchmarkWorkflow:
         self._active_dataset_keys: Optional[List[str]] = None
         self._remote_pairs: List[Tuple[str, str]] = []
         self._hybrid_downloaded_pairs: set[Tuple[str, str]] = set()
+        self._bohrium_job_group_id: Optional[int] = None
         dflow_section = config.get("dflow") or {}
         configure_dflow(
             dflow_section=dflow_section,
@@ -713,9 +854,59 @@ class BaselineBenchmarkWorkflow:
         gt_path = out.get("ground_truth")
         return (out["prepared_data"], gt_path if gt_path else None)
 
-    def _machine_executor(self, docker_image: str, resources: Dict[str, Any]) -> Any:
+    def _machine_executor(
+        self,
+        docker_image: str,
+        resources: Dict[str, Any],
+        *,
+        job_name: Optional[str] = None,
+    ) -> Any:
         project_id = (self.config.get("dflow") or {}).get("bohrium_project_id")
-        return _bohrium_machine_executor(docker_image, resources, project_id)
+        return _bohrium_machine_executor(
+            docker_image,
+            resources,
+            project_id,
+            job_group_id=self._bohrium_job_group_id,
+            job_name=job_name,
+        )
+
+    def _ensure_bohrium_job_group(
+        self,
+        workflow_name: str,
+        algorithms_items: List[Tuple[str, Dict[str, Any]]],
+    ) -> None:
+        """Create one Bohrium job group for this submit when any algorithm uses scass."""
+        self._bohrium_job_group_id = None
+        if not _bohrium_job_group_enabled(self.config):
+            return
+        needs_group = False
+        for _name, alg_cfg in algorithms_items:
+            resources = _resources_with_scass(alg_cfg.get("resources"), self.config)
+            if _scass_type(resources):
+                needs_group = True
+                break
+        if not needs_group:
+            return
+        run_stamp = self._run_output_dir.name
+        group_name = f"{workflow_name}-{run_stamp}"[:120]
+        group_id = _create_bohrium_job_group(group_name, self.config)
+        self._bohrium_job_group_id = group_id
+        meta_path = self._run_output_dir / "bohrium_job_group.json"
+        meta_path.write_text(
+            json.dumps(
+                {
+                    "job_group_id": group_id,
+                    "job_group_name": group_name,
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        print(
+            f"[et-dflow] Bohrium job group created: name={group_name} "
+            f"groupId={group_id}"
+        )
 
     def build_workflow(self) -> Workflow:
         datasets_items = self._enabled_dataset_items()
@@ -735,6 +926,9 @@ class BaselineBenchmarkWorkflow:
         self._hybrid_local_by_ds = {}
         self._hybrid_dataset_cfgs = {}
         self._hybrid_downloaded_pairs = set()
+
+        workflow_name = workflow_config.get("name", "baseline-benchmark")
+        self._ensure_bohrium_job_group(workflow_name, algorithms_items)
 
         if self._hybrid:
             return self._build_workflow_hybrid(
@@ -761,6 +955,7 @@ class BaselineBenchmarkWorkflow:
         multi_dataset: bool,
     ) -> Workflow:
         algorithm_steps = []
+        workflow_name = workflow_config.get("name", "baseline-benchmark")
         for ds_key, ds_cfg in datasets_items:
             self._hybrid_dataset_cfgs[ds_key] = ds_cfg
             dataset_path = ds_cfg.get("path")
@@ -796,13 +991,22 @@ class BaselineBenchmarkWorkflow:
                 docker_image = alg_config.get("docker_image")
                 if not docker_image:
                     raise ValueError(f"Algorithm {alg_name} missing docker_image in config")
-                resources = alg_config.get("resources", {})
+                resources = _resources_with_scass(alg_config.get("resources"), self.config)
                 requests, limits = _algorithm_container_resources(resources)
-                executor = self._machine_executor(docker_image, resources)
+                job_name = _bohrium_job_name(workflow_name, ds_key, alg_name)
+                executor = self._machine_executor(
+                    docker_image, resources, job_name=job_name
+                )
                 if executor is not None:
                     print(
                         "[et-dflow] %s Bohrium scass_type=%s via DispatcherExecutor"
-                        % (alg_name, resources.get("scass_type"))
+                        " (job_name=%s groupId=%s)"
+                        % (
+                            alg_name,
+                            resources.get("scass_type"),
+                            job_name,
+                            self._bohrium_job_group_id,
+                        )
                     )
                 elif requests and "nvidia.com/gpu" in requests:
                     print(
@@ -867,7 +1071,6 @@ class BaselineBenchmarkWorkflow:
             self._local_prepared_data_path = None
             self._local_ground_truth_path = None
 
-        workflow_name = workflow_config.get("name", "baseline-benchmark")
         para = self._workflow_steps_parallelism()
         step_rows: List[Union[Step, List[Step]]] = [algorithm_steps]
         return Workflow(
@@ -985,6 +1188,7 @@ class BaselineBenchmarkWorkflow:
         algorithm_meta: List[Tuple[str, str, Step]] = []
         ds_cfg_by_key: Dict[str, Dict[str, Any]] = dict(datasets_items)
 
+        workflow_name = workflow_config.get("name", "baseline-benchmark")
         for ds_key, ds_cfg in datasets_items:
             san_ds = _sanitize_step_segment(ds_key)
             dp_step = data_prep_steps[ds_key]
@@ -992,13 +1196,22 @@ class BaselineBenchmarkWorkflow:
                 docker_image = alg_config.get("docker_image")
                 if not docker_image:
                     raise ValueError(f"Algorithm {alg_name} missing docker_image in config")
-                resources = alg_config.get("resources", {})
+                resources = _resources_with_scass(alg_config.get("resources"), self.config)
                 requests, limits = _algorithm_container_resources(resources)
-                executor = self._machine_executor(docker_image, resources)
+                job_name = _bohrium_job_name(workflow_name, ds_key, alg_name)
+                executor = self._machine_executor(
+                    docker_image, resources, job_name=job_name
+                )
                 if executor is not None:
                     print(
                         "[et-dflow] %s Bohrium scass_type=%s via DispatcherExecutor"
-                        % (alg_name, resources.get("scass_type"))
+                        " (job_name=%s groupId=%s)"
+                        % (
+                            alg_name,
+                            resources.get("scass_type"),
+                            job_name,
+                            self._bohrium_job_group_id,
+                        )
                     )
                 elif requests and "nvidia.com/gpu" in requests:
                     print(

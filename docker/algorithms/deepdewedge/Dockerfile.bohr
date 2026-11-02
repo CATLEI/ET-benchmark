@@ -1,23 +1,22 @@
-# DeepDeWedge thin image for Bohr Station custom-image UI (same workflow as wbp/Dockerfile.bohr).
+# DeepDeWedge thin image for Bohr Station custom-image UI.
+# Protects CUDA torch from being replaced by PyPI CPU wheels (+cpu).
 #
-# How to use on Bohrium:
-#   1. Open 自定义镜像 / Dockerfile 构建
-#   2. Paste this entire file as the Dockerfile
-#   3. Build & push; put Image URI into yaml algorithms.deepdewedge.docker_image
-#   4. Native run also needs ddw_refine_config_yaml (etc.) in yaml parameters
-#
-# Optional build args (defaults match WBP):
-#   ET_DFLOW_REPO_URL  (default: https://github.com/CATLEI/ET-benchmark.git)
-#   ET_DFLOW_REPO_REF   (default: main)
+# Paste this ENTIRE file into Bohr. Optional build args:
+#   ET_DFLOW_REPO_URL  default https://github.com/CATLEI/ET-benchmark.git
+#   ET_DFLOW_REPO_REF   default main
+#   TORCH_INDEX_URL     default https://download.pytorch.org/whl/cu121
+#   TORCH_VERSION       default: strip +cpu/+cu from base torch (e.g. 2.2.0)
 
 FROM registry.dp.tech/davinci/deepdewedge:20260113145259
 
 USER root
-RUN mkdir -p /app
+RUN mkdir -p /app /tmp/etdflow-scripts
 WORKDIR /tmp/etdflow-build
 
 ARG ET_DFLOW_REPO_URL=https://github.com/CATLEI/ET-benchmark.git
 ARG ET_DFLOW_REPO_REF=main
+ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cu121
+ARG TORCH_VERSION=
 
 RUN apt-get update && apt-get install -y --no-install-recommends git \
     && rm -rf /var/lib/apt/lists/*
@@ -31,14 +30,36 @@ RUN git clone "${ET_DFLOW_REPO_URL}" repo && \
 
 WORKDIR /tmp/etdflow-build/repo
 
+# Decode helper scripts (no shell heredoc; Bohr UI validators often reject <<EOF).
+RUN echo 'aW1wb3J0IHBhdGhsaWIsIHN1YnByb2Nlc3MsIHN5cwoKdmVyLCBjdWRhID0gIiIsIE5vbmUKdHJ5OgogICAgaW1wb3J0IHRvcmNoCiAgICB2ZXIsIGN1ZGEgPSB0b3JjaC5fX3ZlcnNpb25fXywgdG9yY2gudmVyc2lvbi5jdWRhCmV4Y2VwdCBFeGNlcHRpb24gYXMgZXhjOgogICAgcHJpbnQoIlRPUkNIX1BSRSB1bmF2YWlsYWJsZToiLCBleGMsIGZpbGU9c3lzLnN0ZGVycikKCnByaW50KCJUT1JDSF9QUkUgdmVyc2lvbj0lcyBjdWRhPSVzIiAlICh2ZXIsIGN1ZGEpLCBmbHVzaD1UcnVlKQpwYXRobGliLlBhdGgoIi90bXAvdG9yY2hfcHJlLnR4dCIpLndyaXRlX3RleHQoIiVzfCVzXG4iICUgKHZlciwgY3VkYSksIGVuY29kaW5nPSJ1dGYtOCIpCgpmYW1pbHkgPSAoInRvcmNoIiwgInRvcmNodmlzaW9uIiwgInRvcmNoYXVkaW8iLCAidG9yY2h0ZXh0IiwgInRvcmNoZGF0YSIpCmxpbmVzID0gW10KdHJ5OgogICAgb3V0ID0gc3VicHJvY2Vzcy5jaGVja19vdXRwdXQoW3N5cy5leGVjdXRhYmxlLCAiLW0iLCAicGlwIiwgImZyZWV6ZSJdLCB0ZXh0PVRydWUpCmV4Y2VwdCBFeGNlcHRpb24gYXMgZXhjOgogICAgcHJpbnQoInBpcCBmcmVlemUgZmFpbGVkOiIsIGV4YywgZmlsZT1zeXMuc3RkZXJyKQogICAgb3V0ID0gIiIKZm9yIGxpbmUgaW4gb3V0LnNwbGl0bGluZXMoKToKICAgIG5hbWUgPSBsaW5lLnNwbGl0KCI9PSIsIDEpWzBdLnNwbGl0KCJAIiwgMSlbMF0uc3RyaXAoKS5sb3dlcigpCiAgICBpZiBuYW1lIGluIGZhbWlseToKICAgICAgICBsaW5lcy5hcHBlbmQobGluZS5zdHJpcCgpKQpwYXRobGliLlBhdGgoIi90bXAvdG9yY2gtY29uc3RyYWludHMudHh0Iikud3JpdGVfdGV4dCgKICAgICJcbiIuam9pbihsaW5lcykgKyAoIlxuIiBpZiBsaW5lcyBlbHNlICIiKSwgZW5jb2Rpbmc9InV0Zi04IgopCnByaW50KCJUT1JDSF9DT05TVFJBSU5UUzoiLCBmbHVzaD1UcnVlKQpwcmludCgiXG4iLmpvaW4obGluZXMpIG9yICIobm9uZSkiLCBmbHVzaD1UcnVlKQo=' \
+    | base64 -d > /tmp/etdflow-scripts/torch_pre.py \
+    && echo 'aW1wb3J0IG9zCmltcG9ydCBwYXRobGliCmltcG9ydCByZQppbXBvcnQgc2h1dGlsCmltcG9ydCBzdWJwcm9jZXNzCmltcG9ydCBzeXMKCgpkZWYgcHJvYmUoKToKICAgICIiIkltcG9ydCB0b3JjaCBpbiBhIGZyZXNoIGludGVycHJldGVyIChhdm9pZHMgaGFsZi11cGdyYWRlZCBpbi1wcm9jZXNzIHN0YXRlKS4iIiIKICAgIGNvZGUgPSAoCiAgICAgICAgImltcG9ydCB0b3JjaDsgIgogICAgICAgICJwcmludCh0b3JjaC5fX3ZlcnNpb25fXyArICd8JyArIHN0cih0b3JjaC52ZXJzaW9uLmN1ZGEpKSIKICAgICkKICAgIHRyeToKICAgICAgICBvdXQgPSBzdWJwcm9jZXNzLmNoZWNrX291dHB1dCgKICAgICAgICAgICAgW3N5cy5leGVjdXRhYmxlLCAiLWMiLCBjb2RlXSwKICAgICAgICAgICAgdGV4dD1UcnVlLAogICAgICAgICAgICBzdGRlcnI9c3VicHJvY2Vzcy5TVERPVVQsCiAgICAgICAgKS5zdHJpcCgpLnNwbGl0bGluZXMoKVstMV0KICAgICAgICB2ZXIsIGN1ZGEgPSBvdXQuc3BsaXQoInwiLCAxKQogICAgICAgIGlmIGN1ZGEgPT0gIk5vbmUiOgogICAgICAgICAgICBjdWRhID0gTm9uZQogICAgICAgIHJldHVybiB2ZXIsIGN1ZGEsIE5vbmUKICAgIGV4Y2VwdCBzdWJwcm9jZXNzLkNhbGxlZFByb2Nlc3NFcnJvciBhcyBleGM6CiAgICAgICAgcmV0dXJuICIiLCBOb25lLCAoZXhjLm91dHB1dCBvciBzdHIoZXhjKSkKCgpkZWYgaXNfY3B1KHZlciwgY3VkYSk6CiAgICByZXR1cm4gKG5vdCB2ZXIpIG9yIChjdWRhIGlzIE5vbmUpIG9yICgiK2NwdSIgaW4gc3RyKHZlcikpCgoKZGVmIGJhc2VfdmVyc2lvbih2ZXIpOgogICAgdmVyID0gKHZlciBvciAiIikuc3RyaXAoKQogICAgaWYgbm90IHZlcjoKICAgICAgICByZXR1cm4gKG9zLmVudmlyb24uZ2V0KCJUT1JDSF9WRVJTSU9OIikgb3IgIjIuMi4wIikuc3RyaXAoKQogICAgcmV0dXJuIHJlLnN1YihyIlsrXS4qJCIsICIiLCB2ZXIpCgoKZGVmIHB1cmdlX3RvcmNoKCk6CiAgICBwcmludCgiVE9SQ0hfUFVSR0UgdW5pbnN0YWxsaW5nIHRvcmNoIGZhbWlseSIsIGZsdXNoPVRydWUpCiAgICBzdWJwcm9jZXNzLmNhbGwoCiAgICAgICAgWwogICAgICAgICAgICBzeXMuZXhlY3V0YWJsZSwKICAgICAgICAgICAgIi1tIiwKICAgICAgICAgICAgInBpcCIsCiAgICAgICAgICAgICJ1bmluc3RhbGwiLAogICAgICAgICAgICAiLXkiLAogICAgICAgICAgICAidG9yY2giLAogICAgICAgICAgICAidG9yY2h2aXNpb24iLAogICAgICAgICAgICAidG9yY2hhdWRpbyIsCiAgICAgICAgICAgICJ0b3JjaHRleHQiLAogICAgICAgICAgICAidG9yY2hkYXRhIiwKICAgICAgICBdCiAgICApCiAgICBzaXRlID0gcGF0aGxpYi5QYXRoKHN5cy5wcmVmaXgpIC8gImxpYiIgLyAoInB5dGhvbiVkLiVkIiAlIHN5cy52ZXJzaW9uX2luZm9bOjJdKSAvICJzaXRlLXBhY2thZ2VzIgogICAgZm9yIHBhdHRlcm4gaW4gKCJ0b3JjaCIsICJ0b3JjaC0qIiwgInRvcmNodmlzaW9uIiwgInRvcmNodmlzaW9uLSoiLCAidG9yY2hhdWRpbyIsICJ0b3JjaGF1ZGlvLSoiKToKICAgICAgICBmb3IgcGF0aCBpbiBzaXRlLmdsb2IocGF0dGVybik6CiAgICAgICAgICAgIHByaW50KCJUT1JDSF9QVVJHRSBybSIsIHBhdGgsIGZsdXNoPVRydWUpCiAgICAgICAgICAgIGlmIHBhdGguaXNfZGlyKCk6CiAgICAgICAgICAgICAgICBzaHV0aWwucm10cmVlKHBhdGgsIGlnbm9yZV9lcnJvcnM9VHJ1ZSkKICAgICAgICAgICAgZWxzZToKICAgICAgICAgICAgICAgIHRyeToKICAgICAgICAgICAgICAgICAgICBwYXRoLnVubGluaygpCiAgICAgICAgICAgICAgICBleGNlcHQgT1NFcnJvcjoKICAgICAgICAgICAgICAgICAgICBwYXNzCgoKZGVmIGluc3RhbGxfY3VkYV90b3JjaChpbmRleCwgdmVyKToKICAgIHNwZWMgPSAidG9yY2g9PSVzIiAlIHZlcgogICAgcHJpbnQoIlRPUkNIX0lOU1RBTEwgJXMgZnJvbSAlcyIgJSAoc3BlYywgaW5kZXgpLCBmbHVzaD1UcnVlKQogICAgc3VicHJvY2Vzcy5jaGVja19jYWxsKAogICAgICAgIFsKICAgICAgICAgICAgc3lzLmV4ZWN1dGFibGUsCiAgICAgICAgICAgICItbSIsCiAgICAgICAgICAgICJwaXAiLAogICAgICAgICAgICAiaW5zdGFsbCIsCiAgICAgICAgICAgICItLW5vLWNhY2hlLWRpciIsCiAgICAgICAgICAgICItLXRpbWVvdXQiLAogICAgICAgICAgICAiMzAwIiwKICAgICAgICAgICAgc3BlYywKICAgICAgICAgICAgIi0taW5kZXgtdXJsIiwKICAgICAgICAgICAgaW5kZXgsCiAgICAgICAgXQogICAgKQoKCnByZV9yYXcgPSBwYXRobGliLlBhdGgoIi90bXAvdG9yY2hfcHJlLnR4dCIpLnJlYWRfdGV4dChlbmNvZGluZz0idXRmLTgiKS5zdHJpcCgpCnBhcnRzID0gcHJlX3Jhdy5zcGxpdCgifCIsIDEpCnByZV92ZXIgPSBwYXJ0c1swXQpwcmVfY3VkYSA9IE5vbmUgaWYgbGVuKHBhcnRzKSA8IDIgb3IgcGFydHNbMV0gaW4gKCIiLCAiTm9uZSIpIGVsc2UgcGFydHNbMV0KCmluZGV4ID0gKG9zLmVudmlyb24uZ2V0KCJUT1JDSF9JTkRFWF9VUkwiKSBvciAiIikuc3RyaXAoKSBvciAiaHR0cHM6Ly9kb3dubG9hZC5weXRvcmNoLm9yZy93aGwvY3UxMjEiCndhbnRfdmVyID0gKG9zLmVudmlyb24uZ2V0KCJUT1JDSF9WRVJTSU9OIikgb3IgIiIpLnN0cmlwKCkgb3IgYmFzZV92ZXJzaW9uKHByZV92ZXIpCgp2ZXIsIGN1ZGEsIGVyciA9IHByb2JlKCkKcHJpbnQoIlRPUkNIX1BPU1QgdmVyc2lvbj0lcyBjdWRhPSVzIiAlICh2ZXIsIGN1ZGEpLCBmbHVzaD1UcnVlKQppZiBlcnI6CiAgICBwcmludCgiVE9SQ0hfUE9TVCBpbXBvcnRfZXJyb3I6XG4lcyIgJSBlcnIsIGZsdXNoPVRydWUpCgpuZWVkX3JlcGFpciA9IGlzX2NwdSh2ZXIsIGN1ZGEpIG9yIChlcnIgaXMgbm90IE5vbmUpCmlmIG5lZWRfcmVwYWlyOgogICAgcHVyZ2VfdG9yY2goKQogICAgaW5zdGFsbF9jdWRhX3RvcmNoKGluZGV4LCB3YW50X3ZlcikKICAgIHZlciwgY3VkYSwgZXJyID0gcHJvYmUoKQogICAgcHJpbnQoIlRPUkNIX1JFUEFJUkVEIHZlcnNpb249JXMgY3VkYT0lcyIgJSAodmVyLCBjdWRhKSwgZmx1c2g9VHJ1ZSkKICAgIGlmIGVycjoKICAgICAgICBwcmludCgiVE9SQ0hfUkVQQUlSRUQgaW1wb3J0X2Vycm9yOlxuJXMiICUgZXJyLCBmbHVzaD1UcnVlKQogICAgICAgIHJhaXNlIFN5c3RlbUV4aXQoInRvcmNoIGltcG9ydCBzdGlsbCBicm9rZW4gYWZ0ZXIgQ1VEQSByZWluc3RhbGwiKQoKaWYgaXNfY3B1KHZlciwgY3VkYSk6CiAgICByYWlzZSBTeXN0ZW1FeGl0KAogICAgICAgICJSZWZ1c2luZyBDUFUgdG9yY2ggdmVyc2lvbj0lcyBjdWRhPSVzIChiYXNlICVzIGN1ZGE9JXMpLiAiCiAgICAgICAgIlNldCBUT1JDSF9JTkRFWF9VUkwgLyBUT1JDSF9WRVJTSU9OLiIKICAgICAgICAlICh2ZXIsIGN1ZGEsIHByZV92ZXIsIHByZV9jdWRhKQogICAgKQpwcmludCgiVE9SQ0hfT0sgdmVyc2lvbj0lcyBjdWRhPSVzIiAlICh2ZXIsIGN1ZGEpLCBmbHVzaD1UcnVlKQo=' \
+    | base64 -d > /tmp/etdflow-scripts/torch_post.py
+
+RUN python /tmp/etdflow-scripts/torch_pre.py
+
 RUN python -m pip install --no-cache-dir --timeout 300 \
-    -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements-etdflow-algorithm.txt && \
+    --upgrade-strategy only-if-needed \
+    -c /tmp/torch-constraints.txt \
+    -i https://pypi.tuna.tsinghua.edu.cn/simple \
+    -r requirements-etdflow-algorithm.txt && \
     python -m pip install --no-cache-dir --timeout 300 \
     -i https://pypi.tuna.tsinghua.edu.cn/simple --no-deps .
 
-RUN cp docker/algorithms/deepdewedge/run_algorithm.py /app/run_algorithm.py && \
-    cp docker/algorithms/deepdewedge/docker-entrypoint.sh /app/docker-entrypoint.sh && \
-    chmod +x /app/docker-entrypoint.sh
+# Clean reinstall CUDA torch if CPU/broken (avoids GradScaler mixed-install errors).
+RUN TORCH_INDEX_URL="${TORCH_INDEX_URL}" TORCH_VERSION="${TORCH_VERSION}" \
+    python /tmp/etdflow-scripts/torch_post.py
+
+RUN cp docker/algorithms/deepdewedge/run_algorithm.py /app/run_algorithm.py
+
+RUN printf '%s\n' \
+    '#!/bin/sh' \
+    'set -e' \
+    'if [ -n "${CUDA_VISIBLE_DEVICES+x}" ] && [ -z "${CUDA_VISIBLE_DEVICES}" ]; then unset CUDA_VISIBLE_DEVICES; fi' \
+    'if [ $# -eq 0 ]; then exec python /app/run_algorithm.py --help; fi' \
+    'if [ "$1" = "python" ] || [ "$1" = "bash" ] || [ "$1" = "sh" ] || [ "$1" = "/bin/bash" ] || [ "$1" = "/bin/sh" ]; then exec "$@"; fi' \
+    'exec python /app/run_algorithm.py "$@"' \
+    > /app/docker-entrypoint.sh && chmod +x /app/docker-entrypoint.sh
 
 WORKDIR /app
 

@@ -40,6 +40,9 @@ algorithms:
       cpu: 4
       memory: "16Gi"
       gpu: false
+      # Bohrium OpenAPI machine (CPU). Same submit → same job group as GPU algs.
+      # c4_m8_cpu is only 8G (below 16Gi); c8_m32_cpu has headroom and stays cheap.
+      scass_type: "c8_m32_cpu"
 
   sirt:
     enabled: true
@@ -57,6 +60,8 @@ algorithms:
       cpu: 16
       memory: "64Gi"
       gpu: false
+      # No exact 16c64G in Bohrium CPU table; c16_m32_cpu is only 32G (OOM risk).
+      scass_type: "c32_m64_cpu"
   astra_fbp:
     enabled: true
     docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/astra:20261017"
@@ -124,7 +129,7 @@ algorithms:
       gpu: 1
       scass_type: "c16_m62_1 * NVIDIA T4"
 
-  # CPU FFT only. GENFIRE-Python has no CUDA, so this pod does not request a GPU.
+  # CPU FFT only. GENFIRE-Python has no CUDA; use a CPU scass machine (not T4).
   # Short first run: 5 iterations, oversampling 2. Paste the Bohrium URI before enabling.
   genfire:
     enabled: false
@@ -140,6 +145,8 @@ algorithms:
       cpu: 16
       memory: "64Gi"
       gpu: false
+      # Same memory class as sirt; GENFIRE CPU iterations are memory-heavy.
+      scass_type: "c32_m64_cpu"
 
   # Even/odd ramp FBP + ddw prepare/fit/refine inside one GPU pod.
   # mw_angle is derived as 180-(α_max-α_min); do not copy missing_wedge_angle: 70.
@@ -250,4 +257,11 @@ dflow:
   s3_storage_client: "dflow.plugins.bohrium.TiefblueClient"
   bohrium_username: ""
   bohrium_password: ""
-  bohrium_project_id: "3407188"
+  bohrium_project_id: ""
+  # One Bohrium job group per et-dflow benchmark submit (all scass algorithms share groupId).
+  bohrium_job_group: true
+  # If an algorithm omits resources.scass_type, fill from default_scass_type so it still
+  # joins the OpenAPI job group (CPU machine hours; do not default to a GPU scass).
+  # Set false to keep old Argo-pod-only behavior for algorithms without scass_type.
+  force_scass_for_all_algorithms: true
+  default_scass_type: "c16_m32_cpu"

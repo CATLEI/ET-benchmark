@@ -1,6 +1,10 @@
 #!/bin/sh
 # ET-dflow entrypoint for DeepDeWedge layered image
 set -e
+# Empty CUDA_VISIBLE_DEVICES (set-but-blank) can hide all GPUs from CUDA apps.
+if [ -n "${CUDA_VISIBLE_DEVICES+x}" ] && [ -z "${CUDA_VISIBLE_DEVICES}" ]; then
+    unset CUDA_VISIBLE_DEVICES
+fi
 if [ $# -eq 0 ]; then
     exec python /app/run_algorithm.py --help
 fi
