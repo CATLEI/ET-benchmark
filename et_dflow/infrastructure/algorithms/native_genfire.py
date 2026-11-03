@@ -3,7 +3,11 @@ GENFIRE-Python bridge: writes temporary ``.mat`` stacks and calls ``genfire.main
 
 Requires the ``genfire`` package (e.g. image ``registry.dp.tech/davinci/genfire-python:...``).
 GENFIRE expects **square** projections of shape ``(N, N, n_tilts)``; we center-pad
-non-square detectors.
+non-square detectors and force **even** ``N``.
+
+Odd ``N`` (or odd size after GENFIRE's oversampling pad) breaks upstream
+``fillInFourierGrid``: its FFT meshgrid uses ``arange(-n2, n2)`` (length N-1 when
+N is odd) then reshapes to ``N*N`` — e.g. 1024² vs 1025² on sm70.
 
 **Headless:** set ``displayFigure.DisplayFigureON = False`` on parameters.
 
@@ -36,9 +40,11 @@ from et_dflow.infrastructure.algorithms.adapter_common import (
 
 
 def _pad_square_projections(stack_nthw: np.ndarray) -> np.ndarray:
-    """``stack_nthw``: (n_tilts, H, W) → (N, N, n_tilts) float32."""
+    """``stack_nthw``: (n_tilts, H, W) → (N, N, n_tilts) float32 with even N."""
     n, h, w = stack_nthw.shape
     side = int(max(h, w))
+    if side % 2:
+        side += 1
     out = np.zeros((side, side, n), dtype=np.float32)
     oy = (side - h) // 2
     ox = (side - w) // 2
@@ -68,11 +74,9 @@ def run_genfire_reconstruction(
         )
 
     projections = _pad_square_projections(stack)
-    # Euler rows: (phi, theta, psi) in radians — single-axis tilt series
-    tilt_rad = np.deg2rad(angles_deg.astype(np.float64))
-    euler = np.stack(
-        [np.zeros_like(tilt_rad), tilt_rad, np.zeros_like(tilt_rad)], axis=1
-    )
+    # GENFIRE multiplies Euler angles by PI/180 — pass degrees, not radians.
+    tilt = angles_deg.astype(np.float64)
+    euler = np.stack([np.zeros_like(tilt), tilt, np.zeros_like(tilt)], axis=1)
 
     with tempfile.TemporaryDirectory(prefix="et_dflow_genfire_") as tmp:
         tmp_path = Path(tmp)
