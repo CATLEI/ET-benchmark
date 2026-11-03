@@ -1,14 +1,16 @@
 # DeepDeWedge thin image for Bohr Station custom-image UI.
 # Protects CUDA torch from being replaced by PyPI CPU wheels (+cpu).
 #
-# Paste this ENTIRE file into Bohr. Optional build args:
+# How to use on Bohrium:
+#   1. Push adapter/scripts to main first (this Dockerfile clones that ref)
+#   2. Paste this entire file into 自定义镜像 / Dockerfile 构建
+#   3. Build & push; put Image URI into yaml algorithms.deepdewedge.docker_image
+#
+# Optional build args:
 #   ET_DFLOW_REPO_URL  default https://github.com/CATLEI/ET-benchmark.git
 #   ET_DFLOW_REPO_REF   default main
 #   TORCH_INDEX_URL     default https://download.pytorch.org/whl/cu121
 #   TORCH_VERSION       default: strip +cpu/+cu from base torch (e.g. 2.2.0)
-#
-# Torch helpers are short printf lines (no heredoc, no long base64) so Bohr's
-# web editor does not white-screen on paste.
 
 FROM registry.dp.tech/davinci/deepdewedge:20260113145259
 
@@ -27,92 +29,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends git \
 RUN test -n "${ET_DFLOW_REPO_URL}" || \
     (echo "ET_DFLOW_REPO_URL build arg is required." >&2 && exit 1)
 
+# Clone + require torch helpers (also busts stale Bohr build cache of old main).
 RUN git clone "${ET_DFLOW_REPO_URL}" repo && \
     cd repo && \
-    git checkout "${ET_DFLOW_REPO_REF}"
+    git checkout "${ET_DFLOW_REPO_REF}" && \
+    git rev-parse HEAD && \
+    test -f docker/algorithms/deepdewedge/torch_pre.py && \
+    test -f docker/algorithms/deepdewedge/torch_post.py && \
+    test -f docker/algorithms/deepdewedge/docker-entrypoint.sh
 
 WORKDIR /tmp/etdflow-build/repo
 
-# Prefer scripts from repo when present; otherwise write compact inlined copies.
-RUN if [ -f docker/algorithms/deepdewedge/torch_pre.py ]; then \
-      cp docker/algorithms/deepdewedge/torch_pre.py /tmp/etdflow-scripts/torch_pre.py; \
-    else \
-      printf '%s\\n' \
-        'import pathlib, subprocess, sys' \
-        'ver, cuda = "", None' \
-        'try:' \
-        '    import torch' \
-        '    ver, cuda = torch.__version__, torch.version.cuda' \
-        'except Exception as exc:' \
-        '    print("TORCH_PRE unavailable:", exc, file=sys.stderr)' \
-        'print("TORCH_PRE version=%s cuda=%s" % (ver, cuda), flush=True)' \
-        'pathlib.Path("/tmp/torch_pre.txt").write_text("%s|%s" % (ver, cuda) + chr(10), encoding="utf-8")' \
-        'family = ("torch", "torchvision", "torchaudio", "torchtext", "torchdata")' \
-        'lines = []' \
-        'try:' \
-        '    out = subprocess.check_output([sys.executable, "-m", "pip", "freeze"], text=True)' \
-        'except Exception as exc:' \
-        '    print("pip freeze failed:", exc, file=sys.stderr); out = ""' \
-        'for line in out.splitlines():' \
-        '    name = line.split("==", 1)[0].split("@", 1)[0].strip().lower()' \
-        '    if name in family: lines.append(line.strip())' \
-        'pathlib.Path("/tmp/torch-constraints.txt").write_text(chr(10).join(lines) + (chr(10) if lines else ""), encoding="utf-8")' \
-        'print("TORCH_CONSTRAINTS:", flush=True)' \
-        'print(chr(10).join(lines) or "(none)", flush=True)' \
-        > /tmp/etdflow-scripts/torch_pre.py; \
-    fi
-
-RUN if [ -f docker/algorithms/deepdewedge/torch_post.py ]; then \
-      cp docker/algorithms/deepdewedge/torch_post.py /tmp/etdflow-scripts/torch_post.py; \
-    else \
-      printf '%s\\n' \
-        'import os, pathlib, re, shutil, subprocess, sys' \
-        'def probe():' \
-        '    code = "import torch; print(torch.__version__ + chr(124) + str(torch.version.cuda))"' \
-        '    try:' \
-        '        out = subprocess.check_output([sys.executable, "-c", code], text=True, stderr=subprocess.STDOUT).strip().splitlines()[-1]' \
-        '        ver, cuda = out.split("|", 1)' \
-        '        return ver, (None if cuda == "None" else cuda), None' \
-        '    except subprocess.CalledProcessError as exc:' \
-        '        return "", None, (exc.output or str(exc))' \
-        'def is_cpu(ver, cuda):' \
-        '    return (not ver) or (cuda is None) or ("+cpu" in str(ver))' \
-        'def base_version(ver):' \
-        '    ver = (ver or "").strip()' \
-        '    if not ver: return (os.environ.get("TORCH_VERSION") or "2.2.0").strip()' \
-        '    return re.sub(r"[+].*$", "", ver)' \
-        'def purge_torch():' \
-        '    print("TORCH_PURGE uninstalling torch family", flush=True)' \
-        '    subprocess.call([sys.executable, "-m", "pip", "uninstall", "-y", "torch", "torchvision", "torchaudio", "torchtext", "torchdata"])' \
-        '    site = pathlib.Path(sys.prefix) / "lib" / ("python%d.%d" % sys.version_info[:2]) / "site-packages"' \
-        '    for pattern in ("torch", "torch-*", "torchvision", "torchvision-*", "torchaudio", "torchaudio-*"):' \
-        '        for path in site.glob(pattern):' \
-        '            print("TORCH_PURGE rm", path, flush=True)' \
-        '            shutil.rmtree(path, ignore_errors=True) if path.is_dir() else path.unlink(missing_ok=True)' \
-        'def install_cuda_torch(index, ver):' \
-        '    spec = "torch==%s" % ver' \
-        '    print("TORCH_INSTALL %s from %s" % (spec, index), flush=True)' \
-        '    subprocess.check_call([sys.executable, "-m", "pip", "install", "--no-cache-dir", "--timeout", "300", spec, "--index-url", index])' \
-        'pre_raw = pathlib.Path("/tmp/torch_pre.txt").read_text(encoding="utf-8").strip()' \
-        'parts = pre_raw.split("|", 1)' \
-        'pre_ver = parts[0]' \
-        'pre_cuda = None if len(parts) < 2 or parts[1] in ("", "None") else parts[1]' \
-        'index = (os.environ.get("TORCH_INDEX_URL") or "").strip() or "https://download.pytorch.org/whl/cu121"' \
-        'want_ver = (os.environ.get("TORCH_VERSION") or "").strip() or base_version(pre_ver)' \
-        'ver, cuda, err = probe()' \
-        'print("TORCH_POST version=%s cuda=%s" % (ver, cuda), flush=True)' \
-        'if err: print("TORCH_POST import_error:" + chr(10) + str(err), flush=True)' \
-        'if is_cpu(ver, cuda) or err is not None:' \
-        '    purge_torch()' \
-        '    install_cuda_torch(index, want_ver)' \
-        '    ver, cuda, err = probe()' \
-        '    print("TORCH_REPAIRED version=%s cuda=%s" % (ver, cuda), flush=True)' \
-        '    if err: raise SystemExit("torch import still broken after CUDA reinstall")' \
-        'if is_cpu(ver, cuda):' \
-        '    raise SystemExit("Refusing CPU torch version=%s cuda=%s (base %s cuda=%s). Set TORCH_INDEX_URL / TORCH_VERSION." % (ver, cuda, pre_ver, pre_cuda))' \
-        'print("TORCH_OK version=%s cuda=%s" % (ver, cuda), flush=True)' \
-        > /tmp/etdflow-scripts/torch_post.py; \
-    fi
+RUN cp docker/algorithms/deepdewedge/torch_pre.py /tmp/etdflow-scripts/torch_pre.py && \
+    cp docker/algorithms/deepdewedge/torch_post.py /tmp/etdflow-scripts/torch_post.py
 
 RUN python /tmp/etdflow-scripts/torch_pre.py
 
@@ -127,16 +56,9 @@ RUN python -m pip install --no-cache-dir --timeout 300 \
 RUN TORCH_INDEX_URL="${TORCH_INDEX_URL}" TORCH_VERSION="${TORCH_VERSION}" \
     python /tmp/etdflow-scripts/torch_post.py
 
-RUN cp docker/algorithms/deepdewedge/run_algorithm.py /app/run_algorithm.py
-
-RUN printf '%s\\n' \
-    '#!/bin/sh' \
-    'set -e' \
-    'if [ -n "$${CUDA_VISIBLE_DEVICES+x}" ] && [ -z "$${CUDA_VISIBLE_DEVICES}" ]; then unset CUDA_VISIBLE_DEVICES; fi' \
-    'if [ $$# -eq 0 ]; then exec python /app/run_algorithm.py --help; fi' \
-    'if [ "$$1" = "python" ] || [ "$$1" = "bash" ] || [ "$$1" = "sh" ] || [ "$$1" = "/bin/bash" ] || [ "$$1" = "/bin/sh" ]; then exec "$$@"; fi' \
-    'exec python /app/run_algorithm.py "$$@"' \
-    > /app/docker-entrypoint.sh && chmod +x /app/docker-entrypoint.sh
+RUN cp docker/algorithms/deepdewedge/run_algorithm.py /app/run_algorithm.py && \
+    cp docker/algorithms/deepdewedge/docker-entrypoint.sh /app/docker-entrypoint.sh && \
+    chmod +x /app/docker-entrypoint.sh
 
 WORKDIR /app
 
