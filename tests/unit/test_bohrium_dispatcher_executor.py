@@ -5,6 +5,7 @@ import inspect
 from unittest.mock import MagicMock
 
 from et_dflow.infrastructure.workflows.baseline_workflow import (
+    _JOB_GROUP_PATCH,
     _bohrium_job_name,
     _construct_dispatcher_executor,
     _dispatcher_executor_arguments,
@@ -55,7 +56,54 @@ def test_inject_job_group_patch_wraps_machine_load():
     patched = _inject_job_group_patch(script)
     assert "_et_patch_job_group" in patched
     assert "machine = _et_patch_job_group(machine)" in patched
+    assert "ctx.jgid = gid" in patched
+    assert '_kw["group_id"] = gid' in patched
+    assert '_kw["bohr_job_group_id"] = gid' in patched
     assert patched.index("_et_patch_job_group") < patched.index("Machine.load_from_dict")
+
+
+def test_patch_joins_precreated_web_group_on_create_and_insert():
+    """upload_job creates the 任务组. insert(job_group_id) does not."""
+
+    class _Job:
+        def __init__(self):
+            self.calls = []
+
+        def create(self, project_id, name="", group_id=0):
+            self.calls.append(("create", project_id, name, group_id))
+            return {"jobId": 11, "jobGroupId": group_id or 999}
+
+        def insert(self, **kwargs):
+            self.calls.append(("insert", kwargs))
+            return {"jobId": 11}
+
+    class _Ctx:
+        def __init__(self):
+            self.jgid = None
+            self.job = _Job()
+
+    class _Machine:
+        def __init__(self):
+            self.remote_profile = {
+                "bohr_job_group_id": 990100,
+                "job_name": "aligned-model-sm70-wbp",
+            }
+            self.context = _Ctx()
+            self.job = _Job()
+
+    machine = _Machine()
+    namespace = {"machine": machine}
+    exec(_JOB_GROUP_PATCH + "\nmachine = _et_patch_job_group(machine)\n", namespace)
+    machine = namespace["machine"]
+    assert machine.context.jgid == 990100
+    # upload_job passes the (previously empty) jgid. The wrapper must replace it.
+    machine.context.job.create(3407188, name="aligned-model-sm70-wbp", group_id=None)
+    machine.context.job.create(3407188, "aligned-model-sm70-sirt", 0)
+    machine.job.insert(job_name="aligned-model-sm70-wbp", project_id=3407188)
+    assert machine.context.job.calls[0][3] == 990100
+    assert machine.context.job.calls[1][3] == 990100
+    assert machine.job.calls[0][1]["bohr_job_group_id"] == 990100
+    assert "job_group_id" not in machine.job.calls[0][1]
 
 
 def test_render_writes_config_and_job_group_patch(tmp_path, monkeypatch):

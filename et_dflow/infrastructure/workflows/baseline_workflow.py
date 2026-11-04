@@ -300,9 +300,10 @@ def _dispatcher_executor_arguments(
     if job_name:
         remote_profile["job_name"] = str(job_name)
     if job_group_id is not None:
-        # OpenAPI Job.insert / Bohrium UI group. Also keep bohr_* alias.
-        remote_profile["job_group_id"] = int(job_group_id)
+        # Web 任务组 id from create_job_group. OpenAPI job.create sends it as
+        # bohrGroupId. jobGroupId is a different CLI id and does not group the UI.
         remote_profile["bohr_job_group_id"] = int(job_group_id)
+        remote_profile["job_group_id"] = int(job_group_id)
     return {
         "private_key_file": private_key_file,
         "pre_script": _bohriumconfig_preamble(access_key, project_id),
@@ -318,34 +319,59 @@ _JOB_GROUP_PATCH = """
 def _et_patch_job_group(machine):
     rp = getattr(machine, "remote_profile", None) or {}
     if not isinstance(rp, dict):
-        return machine
-    gid = rp.get("job_group_id") or rp.get("bohr_job_group_id")
+        rp = {}
+    gid = rp.get("bohr_job_group_id") or rp.get("job_group_id")
     if not gid:
         return machine
-    job = getattr(machine, "job", None)
-    if job is None or not hasattr(job, "insert"):
-        return machine
-    _orig = job.insert
-    def _insert(*_a, **_kw):
-        _kw = dict(_kw)
-        if "job_group_id" not in _kw and "jobGroupId" not in _kw:
-            _kw["job_group_id"] = gid
+    gid = int(gid)
+
+    def _bind(job):
+        if job is None or getattr(job, "_et_grouped", False):
+            return
+        if hasattr(job, "create"):
+            _orig_create = job.create
+            def _create(*_a, **_kw):
+                _kw = dict(_kw)
+                # upload_job may pass group_id positionally; keep only project_id, name.
+                if len(_a) >= 3:
+                    _a = tuple(_a[:2])
+                # SDK Job.create maps group_id -> bohrGroupId (web 任务组).
+                _kw["group_id"] = gid
+                return _orig_create(*_a, **_kw)
+            job.create = _create
+        if hasattr(job, "insert"):
+            _orig_insert = job.insert
+            def _insert(*_a, **_kw):
+                _kw = dict(_kw)
+                # camelized to bohrJobGroupId. Do not send jobGroupId.
+                _kw["bohr_job_group_id"] = gid
+                return _orig_insert(*_a, **_kw)
+            job.insert = _insert
         try:
-            return _orig(*_a, **_kw)
-        except TypeError as _exc:
-            msg = str(_exc).lower()
-            if "job_group_id" not in msg and "unexpected" not in msg:
-                raise
-            _kw.pop("job_group_id", None)
-            _kw["jobGroupId"] = gid
-            return _orig(*_a, **_kw)
-    job.insert = _insert
+            job._et_grouped = True
+        except Exception:
+            pass
+
+    ctx = getattr(machine, "context", None)
+    if ctx is not None:
+        try:
+            ctx.jgid = gid
+        except Exception:
+            pass
+        _bind(getattr(ctx, "job", None))
+    _bind(getattr(machine, "job", None))
     return machine
 """
 
 
 def _inject_job_group_patch(script: str) -> str:
-    """After Machine.load_from_dict, wrap machine so Job.insert gets job_group_id."""
+    """After Machine.load_from_dict, attach jobs to the pre-created web 任务组.
+
+    OpenAPI ``upload_job`` calls ``context.job.create(group_id=context.jgid)``.
+    ``jgid`` starts unset, so each algorithm pod creates its own 任务组 named
+    after ``job_name``. ``Job.insert(job_group_id=...)`` runs later and does
+    not move that group.
+    """
     if "_et_patch_job_group" in script:
         return script
     marker = "machine = Machine.load_from_dict"
@@ -369,7 +395,7 @@ def _with_bohriumconfig_render(executor_cls: Any) -> Any:
     """Prepend the config write to whatever script dflow's render produces.
 
     Older builds store ``pre_script`` but never insert it, so ``Client()`` still
-    runs before the file exists. Also inject OpenAPI job_group_id into Job.insert.
+    runs before the file exists. Also bind OpenAPI job.create to the shared 任务组.
     """
 
     class BohriumJobExecutor(executor_cls):
