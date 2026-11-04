@@ -71,6 +71,14 @@ import pathlib
 import subprocess
 import sys
 
+INDEXES = [
+    "https://download.pytorch.org/whl/cu121",
+    "https://download.pytorch.org/whl/cu124",
+    "https://download.pytorch.org/whl/cu126",
+    "https://download.pytorch.org/whl/cu128",
+    "https://download.pytorch.org/whl/cu118",
+]
+
 def state():
     import torch
     return torch.__version__, torch.version.cuda
@@ -85,18 +93,25 @@ pre_cuda = None if len(parts) < 2 or parts[1] in ("", "None") else parts[1]
 
 ver, cuda = state()
 print("TORCH_POST version=%s cuda=%s" % (ver, cuda), flush=True)
-index = (os.environ.get("TORCH_INDEX_URL") or "").strip() or \
-    "https://download.pytorch.org/whl/cu121"
+preferred = (os.environ.get("TORCH_INDEX_URL") or "").strip()
+indexes = ([preferred] if preferred else []) + [i for i in INDEXES if i != preferred]
 
 if is_cpu(ver, cuda):
-    print("reinstalling CUDA torch from %s" % index, flush=True)
-    subprocess.check_call(
-        [
-            sys.executable, "-m", "pip", "install", "--no-cache-dir",
-            "--timeout", "300", "--force-reinstall", "torch",
-            "--index-url", index,
-        ]
-    )
+    ok = False
+    for index in indexes:
+        print("reinstalling CUDA torch from %s" % index, flush=True)
+        rc = subprocess.call(
+            [
+                sys.executable, "-m", "pip", "install", "--no-cache-dir",
+                "--timeout", "300", "--force-reinstall", "torch",
+                "--index-url", index,
+            ]
+        )
+        if rc == 0:
+            ok = True
+            break
+    if not ok:
+        raise SystemExit("Failed to install CUDA torch from %s" % indexes)
     ver, cuda = state()
     print("TORCH_REPAIRED version=%s cuda=%s" % (ver, cuda), flush=True)
 

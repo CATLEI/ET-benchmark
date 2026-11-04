@@ -9,8 +9,9 @@
 # Optional build args:
 #   ET_DFLOW_REPO_URL  default https://github.com/CATLEI/ET-benchmark.git
 #   ET_DFLOW_REPO_REF   default main
-#   TORCH_INDEX_URL     default https://download.pytorch.org/whl/cu121
-#   TORCH_VERSION       default: strip +cpu/+cu from base torch (e.g. 2.2.0)
+#   TORCH_INDEX_URL     preferred CUDA wheel index (default cu121; post also
+#                       tries cu124/cu126/cu128 if the pinned version is missing)
+#   TORCH_VERSION       optional pin (default: strip +cpu/+cu from base torch)
 
 FROM registry.dp.tech/davinci/deepdewedge:20260113145259
 
