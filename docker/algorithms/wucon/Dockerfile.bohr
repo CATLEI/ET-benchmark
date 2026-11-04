@@ -1,26 +1,30 @@
-# WUCon thin image for Bohr Station custom-image UI (same workflow as wbp/Dockerfile.bohr).
+# WUCon thin image for Bohr Station custom-image UI.
+# Protects CUDA torch from being replaced by PyPI CPU wheels (+cpu).
 #
 # How to use on Bohrium:
-#   1. Push adapter automation to main first (this Dockerfile clones that ref)
-#   2. Open 自定义镜像 / Dockerfile 构建
-#   3. Paste this entire file as the Dockerfile
-#   4. Build & push; put Image URI into yaml algorithms.wucon.docker_image
-#   5. Native path: stage etbench prj.mrc+.tlt → patch /opt/wucon/src →
+#   1. Push adapter/scripts to main first (this Dockerfile clones that ref)
+#   2. Paste this entire file into 自定义镜像 / Dockerfile 构建
+#   3. Build & push; put Image URI into yaml algorithms.wucon.docker_image
+#   4. Native path: stage etbench prj.mrc+.tlt → patch /opt/wucon/src →
 #      recon_chunk mid (+ optional full y-sweep) → mrc/out.mrc
 #      First run: wucon_recon_subset: true (smoke). Full volume: set false.
 #
-# Optional build args (defaults match WBP):
-#   ET_DFLOW_REPO_URL  (default: https://github.com/CATLEI/ET-benchmark.git)
-#   ET_DFLOW_REPO_REF   (default: main)
+# Optional build args:
+#   ET_DFLOW_REPO_URL  default https://github.com/CATLEI/ET-benchmark.git
+#   ET_DFLOW_REPO_REF   default main
+#   TORCH_INDEX_URL     default https://download.pytorch.org/whl/cu121
+#   TORCH_VERSION       default: strip +cpu/+cu from base torch (e.g. 2.2.0)
 
 FROM registry.dp.tech/davinci/wucon:20260113160259
 
 USER root
-RUN mkdir -p /app
+RUN mkdir -p /app /tmp/etdflow-scripts
 WORKDIR /tmp/etdflow-build
 
 ARG ET_DFLOW_REPO_URL=https://github.com/CATLEI/ET-benchmark.git
 ARG ET_DFLOW_REPO_REF=main
+ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cu121
+ARG TORCH_VERSION=
 
 RUN apt-get update && apt-get install -y --no-install-recommends git \
     && rm -rf /var/lib/apt/lists/*
@@ -28,16 +32,32 @@ RUN apt-get update && apt-get install -y --no-install-recommends git \
 RUN test -n "${ET_DFLOW_REPO_URL}" || \
     (echo "ET_DFLOW_REPO_URL build arg is required." >&2 && exit 1)
 
+# Clone + require torch helpers (also busts stale Bohr build cache of old main).
 RUN git clone "${ET_DFLOW_REPO_URL}" repo && \
     cd repo && \
-    git checkout "${ET_DFLOW_REPO_REF}"
+    git checkout "${ET_DFLOW_REPO_REF}" && \
+    git rev-parse HEAD && \
+    test -f docker/algorithms/wucon/torch_pre.py && \
+    test -f docker/algorithms/wucon/torch_post.py && \
+    test -f docker/algorithms/wucon/docker-entrypoint.sh
 
 WORKDIR /tmp/etdflow-build/repo
 
+RUN cp docker/algorithms/wucon/torch_pre.py /tmp/etdflow-scripts/torch_pre.py && \
+    cp docker/algorithms/wucon/torch_post.py /tmp/etdflow-scripts/torch_post.py
+
+RUN python /tmp/etdflow-scripts/torch_pre.py
+
 RUN python -m pip install --no-cache-dir --timeout 300 \
-    -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements-etdflow-algorithm.txt && \
+    --upgrade-strategy only-if-needed \
+    -c /tmp/torch-constraints.txt \
+    -i https://pypi.tuna.tsinghua.edu.cn/simple \
+    -r requirements-etdflow-algorithm.txt && \
     python -m pip install --no-cache-dir --timeout 300 \
     -i https://pypi.tuna.tsinghua.edu.cn/simple --no-deps .
+
+RUN TORCH_INDEX_URL="${TORCH_INDEX_URL}" TORCH_VERSION="${TORCH_VERSION}" \
+    python /tmp/etdflow-scripts/torch_post.py
 
 RUN cp docker/algorithms/wucon/run_algorithm.py /app/run_algorithm.py && \
     cp docker/algorithms/wucon/docker-entrypoint.sh /app/docker-entrypoint.sh && \

@@ -25,8 +25,21 @@ from et_dflow.infrastructure.algorithms.native_wucon import (
     stage_wucon_inputs,
     write_mrc,
     write_tlt,
+    _clear_blank_cuda_visible_devices,
     _render_constants_py,
 )
+
+
+def test_clear_blank_cuda_visible_devices(monkeypatch):
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "")
+    _clear_blank_cuda_visible_devices()
+    assert "CUDA_VISIBLE_DEVICES" not in os.environ
+
+
+def test_clear_blank_cuda_visible_devices_keeps_index(monkeypatch):
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0")
+    _clear_blank_cuda_visible_devices()
+    assert os.environ["CUDA_VISIBLE_DEVICES"] == "0"
 
 
 def _fake_wucon_src(tmp_path: Path) -> Path:

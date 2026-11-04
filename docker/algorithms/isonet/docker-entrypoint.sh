@@ -1,5 +1,9 @@
 #!/bin/sh
 set -e
+# A blank CUDA_VISIBLE_DEVICES hides every GPU from TensorFlow.
+if [ -n "${CUDA_VISIBLE_DEVICES+x}" ] && [ -z "${CUDA_VISIBLE_DEVICES}" ]; then
+    unset CUDA_VISIBLE_DEVICES
+fi
 if [ $# -eq 0 ]; then
     exec python /app/run_algorithm.py --help
 fi

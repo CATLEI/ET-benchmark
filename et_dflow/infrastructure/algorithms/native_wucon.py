@@ -42,6 +42,52 @@ DATASET_NAME = "etbench"
 _REQUIRED_SRC_FILES = ("recon_chunk.py", "constants.py", "parser.py", "dataset.py")
 
 
+def _clear_blank_cuda_visible_devices() -> None:
+    """Drop a set-but-empty ``CUDA_VISIBLE_DEVICES``.
+
+    Bohrium exports that variable as ``""`` on some GPU jobs. CUDA treats a
+    blank value as "no devices", so ``torch.cuda.device_count()`` stays 0
+    on a machine that does have a GPU.
+    """
+    if os.environ.get("CUDA_VISIBLE_DEVICES") == "":
+        os.environ.pop("CUDA_VISIBLE_DEVICES", None)
+        print("WUCON_RUN unset empty CUDA_VISIBLE_DEVICES", flush=True)
+
+
+def _require_cuda_gpu() -> None:
+    """Fail before recon_chunk when this process cannot see a CUDA device."""
+    _clear_blank_cuda_visible_devices()
+    try:
+        import torch
+    except ImportError as exc:
+        raise RuntimeError("WUCON requires PyTorch with CUDA") from exc
+
+    count = int(torch.cuda.device_count())
+    cuda = getattr(getattr(torch, "version", None), "cuda", None)
+    visible = os.environ.get("CUDA_VISIBLE_DEVICES", "<unset>")
+    version = getattr(torch, "__version__", "?")
+    print(
+        "WUCON_RUN torch=%s cuda=%s device_count=%s CUDA_VISIBLE_DEVICES=%s"
+        % (version, cuda, count, visible),
+        flush=True,
+    )
+    if count >= 1:
+        return
+    if cuda is None or "+cpu" in str(version):
+        raise RuntimeError(
+            "WUCON requires a CUDA build of PyTorch "
+            "(torch=%s cuda=%s device_count=%s). "
+            "Rebuild the image; pip replaced the base CUDA torch with a CPU wheel."
+            % (version, cuda, count)
+        )
+    raise RuntimeError(
+        "WUCON requires at least one CUDA GPU "
+        "(torch=%s cuda=%s device_count=%s CUDA_VISIBLE_DEVICES=%s). "
+        "Use a GPU scass_type such as 'c16_m62_1 * NVIDIA T4'."
+        % (version, cuda, count, visible)
+    )
+
+
 def resolve_wucon_src_dir(config: Dict[str, Any]) -> Path:
     """Resolve upstream WUCON ``src`` directory."""
     candidates: List[Path] = []
@@ -553,19 +599,16 @@ def run_wucon_reconstruction(
         case_id=case_id,
     )
 
+    # Clear a blank CUDA_VISIBLE_DEVICES before the child env is copied.
+    # recon_chunk inherits ``env`` and also needs the GPU.
+    _clear_blank_cuda_visible_devices()
     env = {**os.environ, **(config.get("wucon_env") or {})}
     env["PYTHONPATH"] = str(src_copy) + (
         os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else ""
     )
 
     # GPU hard requirement (official recon_volume also requires CUDA).
-    try:
-        import torch
-
-        if torch.cuda.device_count() < 1:
-            raise RuntimeError("WUCON requires at least one CUDA GPU")
-    except ImportError as exc:
-        raise RuntimeError("WUCON requires PyTorch with CUDA") from exc
+    _require_cuda_gpu()
 
     _run_checked(
         _chunk_cmd(

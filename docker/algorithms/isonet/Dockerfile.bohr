@@ -1,4 +1,7 @@
 # IsoNet thin image for Bohr Station custom-image UI (same workflow as wbp/Dockerfile.bohr).
+# Pins the base CUDA TensorFlow so pip does not replace it with a CPU wheel.
+# A CPU wheel makes nvidia-smi succeed and refine.py check_gpu raise
+# "No GPU detected" at tf.config.list_physical_devices.
 #
 # How to use on Bohrium:
 #   1. Push adapter changes to main first (this Dockerfile clones that ref)
@@ -15,7 +18,7 @@
 FROM registry.dp.tech/davinci/isonet:20260113153511
 
 USER root
-RUN mkdir -p /app
+RUN mkdir -p /app /tmp/etdflow-scripts
 WORKDIR /tmp/etdflow-build
 
 ARG ET_DFLOW_REPO_URL=https://github.com/CATLEI/ET-benchmark.git
@@ -27,16 +30,28 @@ RUN apt-get update && apt-get install -y --no-install-recommends git \
 RUN test -n "${ET_DFLOW_REPO_URL}" || \
     (echo "ET_DFLOW_REPO_URL build arg is required." >&2 && exit 1)
 
+# Clone + require TF helpers (also busts a stale Bohr build cache of old main).
 RUN git clone "${ET_DFLOW_REPO_URL}" repo && \
     cd repo && \
-    git checkout "${ET_DFLOW_REPO_REF}"
+    git checkout "${ET_DFLOW_REPO_REF}" && \
+    git rev-parse HEAD && \
+    test -f docker/algorithms/isonet/tf_pre.py && \
+    test -f docker/algorithms/isonet/tf_post.py
 
 WORKDIR /tmp/etdflow-build/repo
 
+RUN cp docker/algorithms/isonet/tf_pre.py /tmp/etdflow-scripts/tf_pre.py && \
+    cp docker/algorithms/isonet/tf_post.py /tmp/etdflow-scripts/tf_post.py && \
+    python /tmp/etdflow-scripts/tf_pre.py
+
 RUN python -m pip install --no-cache-dir --timeout 300 \
-    -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements-etdflow-algorithm.txt && \
+    --upgrade-strategy only-if-needed \
+    -c /tmp/tf-constraints.txt \
+    -i https://pypi.tuna.tsinghua.edu.cn/simple \
+    -r requirements-etdflow-algorithm.txt && \
     python -m pip install --no-cache-dir --timeout 300 \
-    -i https://pypi.tuna.tsinghua.edu.cn/simple --no-deps .
+    -i https://pypi.tuna.tsinghua.edu.cn/simple --no-deps . && \
+    python /tmp/etdflow-scripts/tf_post.py
 
 RUN cp docker/algorithms/isonet/run_algorithm.py /app/run_algorithm.py && \
     cp docker/algorithms/isonet/docker-entrypoint.sh /app/docker-entrypoint.sh && \

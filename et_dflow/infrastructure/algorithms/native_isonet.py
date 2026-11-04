@@ -19,6 +19,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, MutableMapping, Optional, Tuple, Union
@@ -73,6 +74,104 @@ def _cube_size_for_volume(shape: Tuple[int, ...], config: Dict[str, Any]) -> int
             "Aligned isonet_cube_size %s < 32 for volume shape %s" % (size, shape)
         )
     return size
+
+
+_CUDA_LIB_CANDIDATES = (
+    "/usr/local/cuda/lib64",
+    "/usr/local/nvidia/lib64",
+    "/usr/lib/x86_64-linux-gnu",
+)
+
+_TF_GPU_PROBE = """
+import os
+print("CUDA_VISIBLE_DEVICES=%s" % os.environ.get("CUDA_VISIBLE_DEVICES"))
+print("LD_LIBRARY_PATH=%s" % os.environ.get("LD_LIBRARY_PATH"))
+try:
+    import tensorflow as tf
+except Exception as exc:
+    print("TF_IMPORT_ERROR %s" % exc)
+    raise SystemExit(0)
+print("TF_VERSION %s" % tf.__version__)
+try:
+    built = bool(tf.test.is_built_with_cuda())
+except Exception as exc:
+    print("TF_CUDA_CHECK_ERROR %s" % exc)
+    built = False
+print("TF_BUILT_WITH_CUDA %s" % built)
+try:
+    gpus = tf.config.list_physical_devices("GPU")
+except Exception as exc:
+    print("TF_GPU_ERROR %s" % exc)
+    gpus = []
+print("TF_GPU_COUNT %d" % len(gpus))
+print("TF_GPUS %s" % gpus)
+"""
+
+
+def _probe_tensorflow_gpu(env: Dict[str, str]) -> str:
+    probe_env = dict(env)
+    probe_env["TF_CPP_MIN_LOG_LEVEL"] = "0"
+    proc = subprocess.run(
+        [sys.executable, "-c", _TF_GPU_PROBE],
+        env=probe_env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    report = ((proc.stdout or "") + (proc.stderr or "")).strip()
+    print(report, flush=True)
+    return report
+
+
+def _with_cuda_lib_path(env: Dict[str, str]) -> Dict[str, str]:
+    extra = [path for path in _CUDA_LIB_CANDIDATES if os.path.isdir(path)]
+    if not extra:
+        return env
+    out = dict(env)
+    current = out.get("LD_LIBRARY_PATH") or ""
+    parts = [path for path in extra if path not in current.split(":")]
+    if current:
+        parts.append(current)
+    if not parts:
+        return env
+    out["LD_LIBRARY_PATH"] = ":".join(parts)
+    return out
+
+
+def _tensorflow_sees_gpu(report: str) -> bool:
+    for line in report.splitlines():
+        if line.startswith("TF_GPU_COUNT "):
+            count = line.split(" ", 1)[1].strip()
+            return count.isdigit() and int(count) > 0
+    return False
+
+
+def _ensure_tensorflow_sees_gpu(env: Dict[str, str], gpu_id: str) -> Dict[str, str]:
+    """IsoNet check_gpu passes nvidia-smi, then fails if TensorFlow lists no GPU.
+
+    A CPU TensorFlow wheel (pip replacing the image's CUDA build) produces
+    exactly that: nvidia-smi shows a device, refine.py:228 raises.
+    """
+    ready = dict(env)
+    if not (ready.get("CUDA_VISIBLE_DEVICES") or "").strip():
+        ready["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+    print("ISONET_RUN step=tensorflow-gpu-probe", flush=True)
+    report = _probe_tensorflow_gpu(ready)
+    if _tensorflow_sees_gpu(report):
+        return ready
+    repaired = _with_cuda_lib_path(ready)
+    if repaired.get("LD_LIBRARY_PATH") != ready.get("LD_LIBRARY_PATH"):
+        print("ISONET_RUN step=tensorflow-gpu-probe-retry", flush=True)
+        report = _probe_tensorflow_gpu(repaired)
+        if _tensorflow_sees_gpu(report):
+            return repaired
+        ready = repaired
+    raise RuntimeError(
+        "TensorFlow does not see a GPU, so IsoNet refine will raise "
+        "'No GPU detected' after nvidia-smi succeeds. Rebuild the IsoNet "
+        "image from docker/algorithms/isonet/Dockerfile.bohr (it pins the "
+        "CUDA TensorFlow wheel).\n%s" % report
+    )
 
 
 def _run_isonet(
@@ -343,6 +442,7 @@ def run_isonet_reconstruction(
                     _brief_dir_listing(work_root),
                 )
             )
+        env = _ensure_tensorflow_sees_gpu(env, gpu_id)
         _run_isonet(
             isonet_bin,
             [
