@@ -184,7 +184,7 @@ algorithms:
       cpu: 8
       memory: "64Gi"
       gpu: 1
-      scass_type: "c16_m62_1 * NVIDIA T4"
+      scass_type: "c16_m128_1 * NVIDIA L20"
 
   # WUCON: stage prj.mrc+.tlt, patch /opt/wucon/src, mid-chunk smoke by default.
   # Set wucon_recon_subset: false for full y-sweep. Paste Dockerfile.bohr URI first.
@@ -204,7 +204,7 @@ algorithms:
       cpu: 8
       memory: "64Gi"
       gpu: 1
-      scass_type: "c16_m62_1 * NVIDIA T4"
+      scass_type: "c16_m128_1 * NVIDIA L20"
 evaluation:
   metrics:
     - "psnr"
@@ -249,9 +249,10 @@ policy:
 
 dflow:
   mode: "remote"
-  host: "http://workflows.deepmodeling.com"
-  k8s_api_server: "http://workflows.deepmodeling.com"
+  host: "https://workflows.deepmodeling.com"
+  k8s_api_server: "https://workflows.deepmodeling.com"
   namespace: "argo"
+  # Ignored if set here — export DFLOW_TOKEN instead (never commit secrets).
   token: ""
   s3_repo_key: "oss-bohrium"
   s3_storage_client: "dflow.plugins.bohrium.TiefblueClient"

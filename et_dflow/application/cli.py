@@ -148,6 +148,11 @@ def benchmark(
     dflow_section = config.get("dflow", {})
     is_remote_mode = str(dflow_section.get("mode", "remote")).lower() != "debug"
 
+    # Must run before any `import dflow` (baseline_workflow / dflow_config).
+    from et_dflow.infrastructure.workflows.dflow_bootstrap import bootstrap_dflow_env
+
+    bootstrap_dflow_env(dflow_section)
+
     from et_dflow.infrastructure.workflows.baseline_workflow import BaselineBenchmarkWorkflow
 
     workflow = BaselineBenchmarkWorkflow(config)

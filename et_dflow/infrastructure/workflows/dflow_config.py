@@ -200,6 +200,57 @@ def configure_dflow(
     )
     if use_bohr:
         set_s3_config(endpoint=None, bucket_name=None)
+        # Keep repo non-None so later parse_repo() calls do not hit K8s ConfigMap.
+        # Artifact I/O goes through TiefblueClient, not artifact-repositories.
+        if dflow_s3_config.get("repo") is None:
+            set_s3_config(repo={})
+        # Promote Bohrium access_key → Brm-Ticket on dflow HTTP headers (Argo API).
+        try:
+            from dflow.plugins import bohrium as bohrium_plugin
+
+            if bohrium_plugin.config.get("access_key") and not bohrium_plugin.config.get(
+                "ticket"
+            ):
+                import json
+                import requests
+
+                rsp = requests.get(
+                    (bohrium_plugin.config.get("openapi_url") or "https://openapi.dp.tech")
+                    + "/openapi/v1/ticket/get",
+                    headers={"x-app-key": bohrium_plugin.config.get("app_key") or ""},
+                    params={"accessKey": bohrium_plugin.config["access_key"]},
+                    timeout=60,
+                )
+                res = json.loads(rsp.text)
+                if res.get("code") in (0, "0000", 200, "200"):
+                    ticket = (res.get("data") or {}).get("ticket")
+                    if ticket:
+                        bohrium_plugin.config["ticket"] = ticket
+                        bohrium_plugin.update_headers()
+                        print(
+                            "[et-dflow debug] Bohrium ticket attached to dflow http_headers",
+                            flush=True,
+                        )
+                else:
+                    print(
+                        "[et-dflow debug] Bohrium ticket exchange failed: %s"
+                        % (res.get("error") or res.get("message") or res),
+                        flush=True,
+                    )
+            elif bohrium_plugin.config.get("ticket") or bohrium_plugin.config.get(
+                "authorization"
+            ):
+                bohrium_plugin.update_headers()
+        except Exception as exc:
+            print(
+                "[et-dflow debug] Bohrium header setup skipped: %s" % exc,
+                flush=True,
+            )
+
+    # Prefer https for the public workflow gateway.
+    for key in ("host", "k8s_api_server"):
+        if dflow_config.get(key) == "http://workflows.deepmodeling.com":
+            dflow_config[key] = "https://workflows.deepmodeling.com"
 
     # [debug] 输出 dflow 配置的安全摘要，便于核对客户端是否正确设置了连接信息。
     # 不打印 token 内容，避免泄露；只打印 token 长度（0 表示未配置）。
@@ -209,6 +260,9 @@ def configure_dflow(
         "mode": dflow_config.get("mode"),
         "k8s_api_server": dflow_config.get("k8s_api_server"),
         "token_len": len(dflow_config.get("token") or ""),
+        "bohr": bool(use_bohr),
+        "s3_repo_key": dflow_s3_config.get("repo_key"),
+        "s3_repo_set": dflow_s3_config.get("repo") is not None,
     }
     print("[et-dflow debug] dflow_config summary:", debug_view)
 
