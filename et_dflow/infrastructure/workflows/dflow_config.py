@@ -128,20 +128,29 @@ def _apply_bohrium_headers_to_dflow(bohrium_plugin) -> None:
     authorization = bohrium_plugin.config.get("authorization")
     project_id = bohrium_plugin.config.get("project_id")
 
+    # Never put ``Authorization: jwt ...`` on Argo http_headers: modern
+    # update_headers() only sets Brm-Ticket or Cookie, and openresty on
+    # workflows.deepmodeling.com often HTML-403s non-Bearer Authorization.
+    auth = str(headers.get("Authorization") or "")
+    if auth.lower().startswith("jwt "):
+        headers.pop("Authorization", None)
+
     if ticket:
         headers["Brm-Ticket"] = str(ticket)
         # Prefer ticket over stale cookie when both exist.
         cookie = str(headers.get("Cookie") or "")
         if "brmToken=" in cookie:
-            parts = [p.strip() for p in cookie.split(";") if p.strip() and not p.strip().startswith("brmToken=")]
+            parts = [
+                p.strip()
+                for p in cookie.split(";")
+                if p.strip() and not p.strip().startswith("brmToken=")
+            ]
             if parts:
                 headers["Cookie"] = "; ".join(parts)
             else:
                 headers.pop("Cookie", None)
     elif authorization:
         headers["Cookie"] = "brmToken=" + str(authorization)
-        # dflow 1.7 Bohrium APIs also accept jwt Authorization.
-        headers.setdefault("Authorization", "jwt " + str(authorization))
 
     if project_id:
         headers["Bohrium-Project-ID"] = str(project_id)
@@ -194,16 +203,21 @@ def ensure_argo_auth_headers(*, require: bool = False) -> Dict[str, Any]:
             )
         return summary
 
+    ticket_exchange_failed = False
     try:
         has_update_headers = callable(getattr(bohrium_plugin, "update_headers", None))
         summary["dflow_has_update_headers"] = has_update_headers
 
-        ticket = None
         if not bohrium_plugin.config.get("ticket"):
-            ticket = _exchange_bohrium_ticket(bohrium_plugin)
-            if ticket:
-                bohrium_plugin.config["ticket"] = ticket
-                summary["method"] = "access_key_ticket"
+            access_key = (bohrium_plugin.config.get("access_key") or "").strip()
+            if access_key:
+                ticket = _exchange_bohrium_ticket(bohrium_plugin)
+                if ticket:
+                    bohrium_plugin.config["ticket"] = ticket
+                    summary["method"] = "access_key_ticket"
+                else:
+                    ticket_exchange_failed = True
+                    summary["ticket_exchange_failed"] = True
 
         have_user_pass = bool(
             bohrium_plugin.config.get("username")
@@ -220,7 +234,8 @@ def ensure_argo_auth_headers(*, require: bool = False) -> Dict[str, Any]:
             not has_update_headers
             and not bohrium_plugin.config.get("ticket")
             and have_user_pass
-            and "brmToken=" not in str((dflow_config.get("http_headers") or {}).get("Cookie") or "")
+            and "brmToken="
+            not in str((dflow_config.get("http_headers") or {}).get("Cookie") or "")
         ):
             # pydflow 1.7: Cookie missing — re-login to populate brmToken.
             bohrium_plugin.config["authorization"] = None
@@ -241,7 +256,6 @@ def ensure_argo_auth_headers(*, require: bool = False) -> Dict[str, Any]:
             flush=True,
         )
         summary["error"] = str(exc)
-        # Best-effort: still try to apply whatever auth we already have.
         try:
             from dflow.plugins import bohrium as bohrium_plugin
 
@@ -253,16 +267,36 @@ def ensure_argo_auth_headers(*, require: bool = False) -> Dict[str, Any]:
     summary["headers"] = flags
     print("[et-dflow debug] Argo auth headers:", summary, flush=True)
 
-    has_bohr_auth = (
-        flags["brm_ticket"] or flags["brm_cookie"] or flags["authorization_header"]
-    )
+    host = str(dflow_config.get("host") or "")
+    deepmodeling = "workflows.deepmodeling.com" in host
+    has_ticket = flags["brm_ticket"]
+    has_cookie = flags["brm_cookie"]
+
+    if require and not token and deepmodeling and not has_ticket:
+        # Gateway currently expects Brm-Ticket; JWT Cookie alone → openresty HTML 403.
+        hint = (
+            "Argo submit to workflows.deepmodeling.com needs Brm-Ticket "
+            "(from a valid BOHRIUM_ACCESS_KEY), or DFLOW_TOKEN. "
+            "Password/JWT Cookie can create Bohrium job groups but is rejected by "
+            "the workflow gateway (openresty 403). "
+            "Generate AccessKey at https://bohrium.dp.tech/settings/user then:\n"
+            "  export BOHRIUM_ACCESS_KEY='...'\n"
+            "  # optional: export BOHRIUM_APP_KEY='...'\n"
+            "If the current AccessKey is invalid, unset it and set a new one."
+        )
+        if ticket_exchange_failed:
+            raise RuntimeError(
+                "BOHRIUM_ACCESS_KEY is invalid (ticket exchange failed). " + hint
+            )
+        raise RuntimeError(hint)
+
+    has_bohr_auth = has_ticket or has_cookie or flags["authorization_header"]
     if require and not token and not has_bohr_auth:
         raise RuntimeError(
             "Argo workflow submit would get openresty 403: no DFLOW_TOKEN and no "
-            "Bohrium Brm-Ticket/Cookie/Authorization on dflow http_headers. "
-            "On pydflow 1.7 set BOHRIUM_USERNAME/BOHRIUM_PASSWORD; "
-            "on newer dflow fix BOHRIUM_ACCESS_KEY "
-            "(https://bohrium.dp.tech/settings/user)."
+            "Bohrium Brm-Ticket/Cookie on dflow http_headers. "
+            "Set BOHRIUM_ACCESS_KEY (https://bohrium.dp.tech/settings/user) "
+            "or BOHRIUM_USERNAME/BOHRIUM_PASSWORD."
         )
     return summary
 
