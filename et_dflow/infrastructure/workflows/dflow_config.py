@@ -77,63 +77,115 @@ def _apply_bohrium_config(
             bohrium.config["authorization"] = os.getenv("BOHRIUM_AUTHORIZATION", "")
 
 
-def _attach_bohrium_http_headers() -> None:
-    """Promote Bohrium ticket / login cookie onto dflow Argo http_headers."""
+def _exchange_bohrium_ticket(bohrium_plugin) -> Optional[str]:
+    """Exchange access_key for a Brm-Ticket; return ticket or None."""
+    access_key = (bohrium_plugin.config.get("access_key") or "").strip()
+    if not access_key:
+        return None
+    import requests
+
+    rsp = requests.get(
+        (bohrium_plugin.config.get("openapi_url") or "https://openapi.dp.tech")
+        + "/openapi/v1/ticket/get",
+        headers={"x-app-key": bohrium_plugin.config.get("app_key") or ""},
+        params={"accessKey": access_key},
+        timeout=60,
+    )
+    res = json.loads(rsp.text)
+    if res.get("code") not in (0, "0000", 200, "200"):
+        print(
+            "[et-dflow debug] Bohrium ticket exchange failed: %s"
+            % (res.get("error") or res.get("message") or res),
+            flush=True,
+        )
+        return None
+    ticket = (res.get("data") or {}).get("ticket")
+    return str(ticket) if ticket else None
+
+
+def _argo_auth_header_keys(headers: Optional[Dict[str, Any]] = None) -> Dict[str, bool]:
+    headers = headers if headers is not None else (dflow_config.get("http_headers") or {})
+    cookie = str(headers.get("Cookie") or "")
+    return {
+        "brm_ticket": bool(headers.get("Brm-Ticket")),
+        "brm_cookie": "brmToken=" in cookie,
+        "authorization_header": bool(headers.get("Authorization")),
+        "project_id": bool(headers.get("Bohrium-Project-ID")),
+    }
+
+
+def ensure_argo_auth_headers(*, require: bool = False) -> Dict[str, Any]:
+    """Ensure Bohrium ticket/cookie (or DFLOW_TOKEN) is on Argo ``http_headers``.
+
+    dflow ``create_job_group`` may obtain a ticket for its own POST without
+    persisting ``bohrium.config["ticket"]``, so ``workflow.submit()`` would still
+    hit openresty 403. Call this before submit.
+    """
+    token = (os.environ.get("DFLOW_TOKEN") or "").strip() or str(
+        dflow_config.get("token") or ""
+    ).strip()
+    summary: Dict[str, Any] = {"token_len": len(token), "method": None}
+
     try:
         from dflow.plugins import bohrium as bohrium_plugin
     except ImportError:
-        return
+        if require and not token:
+            raise RuntimeError(
+                "Argo submit needs DFLOW_TOKEN or Bohrium auth, but dflow.plugins.bohrium "
+                "is unavailable."
+            )
+        return summary
 
     try:
-        if bohrium_plugin.config.get("access_key") and not bohrium_plugin.config.get("ticket"):
-            import requests
+        if not bohrium_plugin.config.get("ticket"):
+            ticket = _exchange_bohrium_ticket(bohrium_plugin)
+            if ticket:
+                bohrium_plugin.config["ticket"] = ticket
+                summary["method"] = "access_key_ticket"
 
-            rsp = requests.get(
-                (bohrium_plugin.config.get("openapi_url") or "https://openapi.dp.tech")
-                + "/openapi/v1/ticket/get",
-                headers={"x-app-key": bohrium_plugin.config.get("app_key") or ""},
-                params={"accessKey": bohrium_plugin.config["access_key"]},
-                timeout=60,
-            )
-            res = json.loads(rsp.text)
-            if res.get("code") in (0, "0000", 200, "200"):
-                ticket = (res.get("data") or {}).get("ticket")
-                if ticket:
-                    bohrium_plugin.config["ticket"] = ticket
-                    bohrium_plugin.update_headers()
-                    print(
-                        "[et-dflow debug] Bohrium ticket attached to dflow http_headers",
-                        flush=True,
-                    )
-            else:
-                print(
-                    "[et-dflow debug] Bohrium ticket exchange failed: %s"
-                    % (res.get("error") or res.get("message") or res),
-                    flush=True,
-                )
-        elif (
-            bohrium_plugin.config.get("username")
-            and bohrium_plugin.config.get("password")
-            and not bohrium_plugin.config.get("ticket")
+        if (
+            not bohrium_plugin.config.get("ticket")
             and not bohrium_plugin.config.get("authorization")
+            and bohrium_plugin.config.get("username")
+            and bohrium_plugin.config.get("password")
         ):
             bohrium_plugin.login()
-            print(
-                "[et-dflow debug] Bohrium login attached to dflow http_headers",
-                flush=True,
-            )
-        elif bohrium_plugin.config.get("ticket") or bohrium_plugin.config.get(
-            "authorization"
-        ):
-            bohrium_plugin.update_headers()
-        elif bohrium_plugin.config.get("project_id"):
-            # Project id alone still belongs on headers when present.
-            bohrium_plugin.update_headers()
+            summary["method"] = "password_login"
+
+        # Always refresh http_headers from current bohrium.config.
+        bohrium_plugin.update_headers()
+        if summary["method"] is None:
+            if bohrium_plugin.config.get("ticket"):
+                summary["method"] = "existing_ticket"
+            elif bohrium_plugin.config.get("authorization"):
+                summary["method"] = "existing_authorization"
+            elif bohrium_plugin.config.get("project_id"):
+                summary["method"] = "project_id_only"
     except Exception as exc:
         print(
             "[et-dflow debug] Bohrium header setup skipped: %s" % exc,
             flush=True,
         )
+        summary["error"] = str(exc)
+
+    flags = _argo_auth_header_keys()
+    summary["headers"] = flags
+    print("[et-dflow debug] Argo auth headers:", summary, flush=True)
+
+    has_bohr_auth = flags["brm_ticket"] or flags["brm_cookie"]
+    if require and not token and not has_bohr_auth:
+        raise RuntimeError(
+            "Argo workflow submit would get openresty 403: no DFLOW_TOKEN and no "
+            "Bohrium Brm-Ticket/Cookie on dflow http_headers. "
+            "Fix BOHRIUM_ACCESS_KEY (https://bohrium.dp.tech/settings/user) "
+            "or set BOHRIUM_USERNAME/BOHRIUM_PASSWORD, then retry."
+        )
+    return summary
+
+
+def _attach_bohrium_http_headers() -> None:
+    """Backward-compatible wrapper used by configure_dflow."""
+    ensure_argo_auth_headers(require=False)
 
 
 def _boolize(value: Any) -> bool:
@@ -240,11 +292,12 @@ def configure_dflow(
         dflow_config["k8s_api_server"] = k8s_env
     if os.getenv("DFLOW_MODE"):
         dflow_config["mode"] = os.getenv("DFLOW_MODE")
-    # Token 仅从环境变量设置，避免进入配置文件或序列化
-    if "DFLOW_TOKEN" in os.environ:
-        dflow_config["token"] = os.getenv("DFLOW_TOKEN", "")
-    else:
-        dflow_config["token"] = ""
+    # Token 仅从环境变量设置。空字符串必须变成 None：dflow get_argo_api_client
+    # treats any non-None token as ``Authorization: Bearer ...``, and an empty
+    # Bearer makes workflows.deepmodeling.com openresty return 403 even when
+    # Bohrium Brm-Ticket is present on http_headers.
+    raw_token = os.getenv("DFLOW_TOKEN", "") if "DFLOW_TOKEN" in os.environ else ""
+    dflow_config["token"] = raw_token.strip() or None
     if os.getenv("DFLOW_S3_ENDPOINT"):
         set_s3_config(endpoint=os.getenv("DFLOW_S3_ENDPOINT"))
     if os.getenv("DFLOW_S3_CONSOLE"):

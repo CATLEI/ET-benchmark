@@ -135,4 +135,13 @@ def bohr_workflow_kwargs(**kwargs: Any) -> Dict[str, Any]:
     if _is_bohr_s3_config() and not _dflow_token():
         # Explicit None beats s3_config["repo_key"] fallback inside Workflow.__init__.
         out.setdefault("artifact_repo_key", None)
+        # Empty string must not become Authorization: Bearer  (openresty 403).
+        out.setdefault("token", None)
+        try:
+            from dflow import config as _dflow_config
+
+            if not (_dflow_config.get("token") or "").strip():
+                _dflow_config["token"] = None
+        except Exception:
+            pass
     return out

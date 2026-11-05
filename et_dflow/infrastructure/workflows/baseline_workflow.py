@@ -93,21 +93,18 @@ def _bohrium_job_name(workflow_name: str, ds_key: str, alg_name: str) -> str:
 
 def _create_bohrium_job_group(group_name: str, config: Dict[str, Any]) -> int:
     """Create one Bohrium job group on the submitter; return numeric groupId."""
-    dflow_section = _dflow_section(config)
-    project_id = dflow_section.get("bohrium_project_id")
-    if project_id is None or str(project_id).strip() == "":
-        raise ValueError(
-            "dflow.bohrium_project_id is required to create a Bohrium job group"
-        )
+    project_id = _bohrium_project_id(config)
     # Ensure AccessKey is resolvable before create_job_group (uses bohrium.config).
     access_key = _bohrium_access_key()
     from dflow.plugins import bohrium as bohrium_plugin
+    from et_dflow.infrastructure.workflows.dflow_config import ensure_argo_auth_headers
 
     if not bohrium_plugin.config.get("access_key"):
         bohrium_plugin.config["access_key"] = access_key
-    if not bohrium_plugin.config.get("project_id"):
-        bohrium_plugin.config["project_id"] = str(project_id)
+    bohrium_plugin.config["project_id"] = str(project_id)
     group_id = bohrium_plugin.create_job_group(group_name)
+    # dflow may use the ticket only for this POST; persist onto Argo http_headers.
+    ensure_argo_auth_headers(require=False)
     return int(group_id)
 
 
@@ -200,6 +197,34 @@ def _bohrium_access_key() -> str:
         "Bohrium AccessKey is required when resources.scass_type is set. "
         "Export BOHRIUM_ACCESS_KEY on the submitter. "
         "Create the key at https://bohrium.dp.tech/settings ."
+    )
+
+
+def _bohrium_project_id(config: Dict[str, Any]) -> str:
+    """Resolve project id: YAML → env → bohrium.config (non-empty wins)."""
+    import os
+
+    dflow_section = _dflow_section(config)
+    candidates = [
+        dflow_section.get("bohrium_project_id"),
+        os.getenv("BOHRIUM_PROJECT_ID"),
+    ]
+    try:
+        from dflow.plugins.bohrium import config as bohrium_config
+
+        if isinstance(bohrium_config, dict):
+            candidates.append(bohrium_config.get("project_id"))
+    except ImportError:
+        pass
+    for value in candidates:
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            return text
+    raise ValueError(
+        "dflow.bohrium_project_id (or env BOHRIUM_PROJECT_ID) is required "
+        "to create a Bohrium job group / submit scass jobs"
     )
 
 
@@ -889,7 +914,7 @@ class BaselineBenchmarkWorkflow:
         *,
         job_name: Optional[str] = None,
     ) -> Any:
-        project_id = (self.config.get("dflow") or {}).get("bohrium_project_id")
+        project_id = _bohrium_project_id(self.config)
         return _bohrium_machine_executor(
             docker_image,
             resources,
@@ -1501,9 +1526,14 @@ class BaselineBenchmarkWorkflow:
     def _submit_once(self) -> str:
         workflow = self.build_workflow()
         from dflow import config as dflow_config
+        from et_dflow.infrastructure.workflows.dflow_config import ensure_argo_auth_headers
+
+        # Empty DFLOW_TOKEN relies on Bohrium Brm-Ticket/Cookie in http_headers.
+        ensure_argo_auth_headers(require=True)
         submit_view = {
             "host": dflow_config.get("host"),
             "namespace": dflow_config.get("namespace"),
+            "http_header_keys": sorted((dflow_config.get("http_headers") or {}).keys()),
         }
         print("[et-dflow debug] submit() input:", submit_view)
         pairs = self._hybrid_pairs if self._hybrid else self._remote_pairs
