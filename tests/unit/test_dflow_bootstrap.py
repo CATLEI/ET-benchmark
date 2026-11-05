@@ -75,3 +75,15 @@ def test_bootstrap_reads_yaml_s3_repo_fields(monkeypatch):
 
     assert json.loads(os.environ["DFLOW_S3_REPO"]) == {"oss": {}}
     assert os.environ["DFLOW_S3_REPO_TYPE"] == "oss"
+
+
+def test_bootstrap_clears_storage_client_env_before_import(monkeypatch):
+    monkeypatch.setenv("BOHRIUM_ACCESS_KEY", "dummy")
+    monkeypatch.setenv(
+        "DFLOW_S3_STORAGE_CLIENT", "dflow.plugins.bohrium.TiefblueClient"
+    )
+    monkeypatch.delenv("DFLOW_TOKEN", raising=False)
+
+    bootstrap_dflow_env({"s3_repo_key": "oss-bohrium"})
+
+    assert "DFLOW_S3_STORAGE_CLIENT" not in os.environ

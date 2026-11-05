@@ -25,7 +25,7 @@ datasets:
 algorithms:
   wbp:
     enabled: true
-    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/wbp:20260410"
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/wbp:20261019v1"
     parameters:
       filter_type: "ramp"
       filter_cutoff: 1.0
@@ -46,7 +46,7 @@ algorithms:
 
   sirt:
     enabled: true
-    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/sirt:20260321"
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/sirt:20261019"
     parameters:
       backend: "cpu_sirt"
       iterations: 30
@@ -114,8 +114,8 @@ algorithms:
   # Same output grid as ASTRA: nVoxel is [nz, ny, nx] = (512, 513, 513).
   # Paste the Bohrium URI from docker/algorithms/tigre/Dockerfile.bohr before submitting.
   tigre_sirt:
-    enabled: false
-    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/tigre:REPLACE"
+    enabled: true
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/tigre:20261027"
     parameters:
       use_native: true
       allow_placeholder: false
@@ -132,8 +132,8 @@ algorithms:
   # CPU FFT only. GENFIRE-Python has no CUDA; use a CPU scass machine (not T4).
   # Short first run: 5 iterations, oversampling 2. Paste the Bohrium URI before enabling.
   genfire:
-    enabled: false
-    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/genfire:REPLACE"
+    enabled: true
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/genfire:20261104"
     parameters:
       use_native: true
       allow_placeholder: false
@@ -152,8 +152,8 @@ algorithms:
   # mw_angle is derived as 180-(α_max-α_min); do not copy missing_wedge_angle: 70.
   # Paste the Bohrium URI from docker/algorithms/deepdewedge/Dockerfile.bohr first.
   deepdewedge:
-    enabled: false
-    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/deepdewedge:REPLACE"
+    enabled: true
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/deepdewedge:20261104"
     parameters:
       use_native: true
       allow_placeholder: false
@@ -170,8 +170,8 @@ algorithms:
   # isonet_pixel_size is Å/pixel (IsoNet default recommendation ~10); override when
   # the sm70 dataset documents a real value. Paste Dockerfile.bohr URI before enable.
   isonet:
-    enabled: false
-    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/isonet:REPLACE"
+    enabled: true
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/isonet:20261104"
     parameters:
       use_native: true
       allow_placeholder: false
@@ -189,8 +189,8 @@ algorithms:
   # WUCON: stage prj.mrc+.tlt, patch /opt/wucon/src, mid-chunk smoke by default.
   # Set wucon_recon_subset: false for full y-sweep. Paste Dockerfile.bohr URI first.
   wucon:
-    enabled: false
-    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/wucon:REPLACE"
+    enabled: true
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/wucon:20261105"
     parameters:
       use_native: true
       allow_placeholder: false
@@ -263,7 +263,8 @@ dflow:
   s3_storage_client: "dflow.plugins.bohrium.TiefblueClient"
   bohrium_username: ""
   bohrium_password: ""
-  bohrium_project_id: ""
+  bohrium_project_id: "3407188"
+  s3_access_key: "" 
   # One Bohrium job group per et-dflow benchmark submit (all scass algorithms share groupId).
   bohrium_job_group: true
   # If an algorithm omits resources.scass_type, fill from default_scass_type so it still

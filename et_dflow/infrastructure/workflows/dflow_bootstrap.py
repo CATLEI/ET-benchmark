@@ -96,6 +96,17 @@ def bootstrap_dflow_env(dflow_section: Optional[Dict[str, Any]] = None) -> None:
         else:
             os.environ["DFLOW_S3_REPO"] = json.dumps(yaml_repo)
 
+    # CRITICAL: do NOT set DFLOW_S3_STORAGE_CLIENT before ``import dflow``.
+    # dflow/__init__.py eagerly constructs the client; old TiefblueClient then
+    # calls password login during import and aborts the whole CLI on bad
+    # BOHRIUM_USERNAME/PASSWORD. configure_dflow creates the client later.
+    if os.environ.pop("DFLOW_S3_STORAGE_CLIENT", None):
+        print(
+            "[et-dflow] cleared DFLOW_S3_STORAGE_CLIENT before import dflow "
+            "(TiefblueClient will be created in configure_dflow).",
+            flush=True,
+        )
+
     # Skip import-time ConfigMap fetch when no Argo/K8s token is available.
     # TiefblueClient (configured after import) replaces artifact-repositories.
     token = (os.environ.get("DFLOW_TOKEN") or "").strip()
