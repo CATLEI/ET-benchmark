@@ -1526,14 +1526,24 @@ class BaselineBenchmarkWorkflow:
     def _submit_once(self) -> str:
         workflow = self.build_workflow()
         from dflow import config as dflow_config
-        from et_dflow.infrastructure.workflows.dflow_config import ensure_argo_auth_headers
+        from et_dflow.infrastructure.workflows.dflow_config import (
+            ensure_argo_auth_headers,
+            refresh_workflow_argo_client,
+        )
 
         # Empty DFLOW_TOKEN relies on Bohrium Brm-Ticket/Cookie in http_headers.
-        ensure_argo_auth_headers(require=True)
+        # Rebuild Argo client so an empty Bearer from Workflow.__init__ is dropped.
+        refresh_workflow_argo_client(workflow)
         submit_view = {
             "host": dflow_config.get("host"),
             "namespace": dflow_config.get("namespace"),
+            "token_is_none": dflow_config.get("token") is None,
             "http_header_keys": sorted((dflow_config.get("http_headers") or {}).keys()),
+            "http_header_flags": {
+                k: bool(v)
+                for k, v in (dflow_config.get("http_headers") or {}).items()
+                if k in ("Brm-Ticket", "Cookie", "Authorization", "Bohrium-Project-ID")
+            },
         }
         print("[et-dflow debug] submit() input:", submit_view)
         pairs = self._hybrid_pairs if self._hybrid else self._remote_pairs

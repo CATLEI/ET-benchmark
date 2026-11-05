@@ -78,15 +78,24 @@ def _apply_bohrium_config(
 
 
 def _exchange_bohrium_ticket(bohrium_plugin) -> Optional[str]:
-    """Exchange access_key for a Brm-Ticket; return ticket or None."""
+    """Exchange access_key for a Brm-Ticket; return ticket or None.
+
+    Older pydflow (e.g. 1.7) has no AccessKey/ticket support; then this no-ops
+    unless the installed plugin exposes access_key + openapi_url.
+    """
     access_key = (bohrium_plugin.config.get("access_key") or "").strip()
     if not access_key:
         return None
+    # dflow 1.7 config has no openapi_url / ticket keys in the stock dict.
+    openapi_url = (
+        bohrium_plugin.config.get("openapi_url")
+        or os.getenv("BOHRIUM_OPENAPI_URL")
+        or "https://openapi.dp.tech"
+    )
     import requests
 
     rsp = requests.get(
-        (bohrium_plugin.config.get("openapi_url") or "https://openapi.dp.tech")
-        + "/openapi/v1/ticket/get",
+        openapi_url.rstrip("/") + "/openapi/v1/ticket/get",
         headers={"x-app-key": bohrium_plugin.config.get("app_key") or ""},
         params={"accessKey": access_key},
         timeout=60,
@@ -103,15 +112,60 @@ def _exchange_bohrium_ticket(bohrium_plugin) -> Optional[str]:
     return str(ticket) if ticket else None
 
 
+def _apply_bohrium_headers_to_dflow(bohrium_plugin) -> None:
+    """Write Bohrium auth into ``dflow.config['http_headers']``.
+
+    Compatible with pydflow 1.7 (no ``update_headers``) and newer releases.
+    Replaces Cookie instead of appending, to avoid duplicated ``brmToken=``.
+    """
+    updater = getattr(bohrium_plugin, "update_headers", None)
+    if callable(updater):
+        updater()
+        return
+
+    headers = dflow_config.setdefault("http_headers", {})
+    ticket = bohrium_plugin.config.get("ticket")
+    authorization = bohrium_plugin.config.get("authorization")
+    project_id = bohrium_plugin.config.get("project_id")
+
+    if ticket:
+        headers["Brm-Ticket"] = str(ticket)
+        # Prefer ticket over stale cookie when both exist.
+        cookie = str(headers.get("Cookie") or "")
+        if "brmToken=" in cookie:
+            parts = [p.strip() for p in cookie.split(";") if p.strip() and not p.strip().startswith("brmToken=")]
+            if parts:
+                headers["Cookie"] = "; ".join(parts)
+            else:
+                headers.pop("Cookie", None)
+    elif authorization:
+        headers["Cookie"] = "brmToken=" + str(authorization)
+        # dflow 1.7 Bohrium APIs also accept jwt Authorization.
+        headers.setdefault("Authorization", "jwt " + str(authorization))
+
+    if project_id:
+        headers["Bohrium-Project-ID"] = str(project_id)
+
+
 def _argo_auth_header_keys(headers: Optional[Dict[str, Any]] = None) -> Dict[str, bool]:
     headers = headers if headers is not None else (dflow_config.get("http_headers") or {})
     cookie = str(headers.get("Cookie") or "")
+    auth = str(headers.get("Authorization") or "")
     return {
         "brm_ticket": bool(headers.get("Brm-Ticket")),
         "brm_cookie": "brmToken=" in cookie,
-        "authorization_header": bool(headers.get("Authorization")),
+        "authorization_header": bool(auth.strip()),
         "project_id": bool(headers.get("Bohrium-Project-ID")),
     }
+
+
+def _clear_empty_dflow_token() -> None:
+    """Empty string must not become ``Authorization: Bearer `` on the Argo client."""
+    raw = dflow_config.get("token")
+    if raw is None:
+        return
+    if not str(raw).strip():
+        dflow_config["token"] = None
 
 
 def ensure_argo_auth_headers(*, require: bool = False) -> Dict[str, Any]:
@@ -120,7 +174,11 @@ def ensure_argo_auth_headers(*, require: bool = False) -> Dict[str, Any]:
     dflow ``create_job_group`` may obtain a ticket for its own POST without
     persisting ``bohrium.config["ticket"]``, so ``workflow.submit()`` would still
     hit openresty 403. Call this before submit.
+
+    Also compatible with pydflow 1.7 which has ``login()`` + Cookie but no
+    ``update_headers`` / AccessKey ticket helpers.
     """
+    _clear_empty_dflow_token()
     token = (os.environ.get("DFLOW_TOKEN") or "").strip() or str(
         dflow_config.get("token") or ""
     ).strip()
@@ -137,23 +195,39 @@ def ensure_argo_auth_headers(*, require: bool = False) -> Dict[str, Any]:
         return summary
 
     try:
+        has_update_headers = callable(getattr(bohrium_plugin, "update_headers", None))
+        summary["dflow_has_update_headers"] = has_update_headers
+
+        ticket = None
         if not bohrium_plugin.config.get("ticket"):
             ticket = _exchange_bohrium_ticket(bohrium_plugin)
             if ticket:
                 bohrium_plugin.config["ticket"] = ticket
                 summary["method"] = "access_key_ticket"
 
+        have_user_pass = bool(
+            bohrium_plugin.config.get("username")
+            and bohrium_plugin.config.get("password")
+        )
         if (
             not bohrium_plugin.config.get("ticket")
             and not bohrium_plugin.config.get("authorization")
-            and bohrium_plugin.config.get("username")
-            and bohrium_plugin.config.get("password")
+            and have_user_pass
         ):
             bohrium_plugin.login()
             summary["method"] = "password_login"
+        elif (
+            not has_update_headers
+            and not bohrium_plugin.config.get("ticket")
+            and have_user_pass
+            and "brmToken=" not in str((dflow_config.get("http_headers") or {}).get("Cookie") or "")
+        ):
+            # pydflow 1.7: Cookie missing — re-login to populate brmToken.
+            bohrium_plugin.config["authorization"] = None
+            bohrium_plugin.login()
+            summary["method"] = "password_login_refresh"
 
-        # Always refresh http_headers from current bohrium.config.
-        bohrium_plugin.update_headers()
+        _apply_bohrium_headers_to_dflow(bohrium_plugin)
         if summary["method"] is None:
             if bohrium_plugin.config.get("ticket"):
                 summary["method"] = "existing_ticket"
@@ -167,20 +241,48 @@ def ensure_argo_auth_headers(*, require: bool = False) -> Dict[str, Any]:
             flush=True,
         )
         summary["error"] = str(exc)
+        # Best-effort: still try to apply whatever auth we already have.
+        try:
+            from dflow.plugins import bohrium as bohrium_plugin
+
+            _apply_bohrium_headers_to_dflow(bohrium_plugin)
+        except Exception:
+            pass
 
     flags = _argo_auth_header_keys()
     summary["headers"] = flags
     print("[et-dflow debug] Argo auth headers:", summary, flush=True)
 
-    has_bohr_auth = flags["brm_ticket"] or flags["brm_cookie"]
+    has_bohr_auth = (
+        flags["brm_ticket"] or flags["brm_cookie"] or flags["authorization_header"]
+    )
     if require and not token and not has_bohr_auth:
         raise RuntimeError(
             "Argo workflow submit would get openresty 403: no DFLOW_TOKEN and no "
-            "Bohrium Brm-Ticket/Cookie on dflow http_headers. "
-            "Fix BOHRIUM_ACCESS_KEY (https://bohrium.dp.tech/settings/user) "
-            "or set BOHRIUM_USERNAME/BOHRIUM_PASSWORD, then retry."
+            "Bohrium Brm-Ticket/Cookie/Authorization on dflow http_headers. "
+            "On pydflow 1.7 set BOHRIUM_USERNAME/BOHRIUM_PASSWORD; "
+            "on newer dflow fix BOHRIUM_ACCESS_KEY "
+            "(https://bohrium.dp.tech/settings/user)."
         )
     return summary
+
+
+def refresh_workflow_argo_client(workflow: Any) -> None:
+    """Rebuild Workflow Argo API client without empty Bearer token."""
+    _clear_empty_dflow_token()
+    ensure_argo_auth_headers(require=True)
+    try:
+        from argo.workflows.client import WorkflowServiceApi
+        from dflow.workflow import get_argo_api_client
+    except Exception:
+        return
+    token = dflow_config.get("token")
+    if isinstance(token, str) and not token.strip():
+        token = None
+    workflow.token = token
+    workflow.api_instance = WorkflowServiceApi(
+        get_argo_api_client(getattr(workflow, "host", None), token)
+    )
 
 
 def _attach_bohrium_http_headers() -> None:

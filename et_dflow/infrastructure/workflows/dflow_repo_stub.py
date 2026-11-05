@@ -135,8 +135,10 @@ def bohr_workflow_kwargs(**kwargs: Any) -> Dict[str, Any]:
     if _is_bohr_s3_config() and not _dflow_token():
         # Explicit None beats s3_config["repo_key"] fallback inside Workflow.__init__.
         out.setdefault("artifact_repo_key", None)
-        # Empty string must not become Authorization: Bearer  (openresty 403).
-        out.setdefault("token", None)
+        # Do NOT pass token=None: Workflow does
+        # ``self.token = token if token is not None else config["token"]``,
+        # so None falls back to config. Clear config instead so get_argo_api_client
+        # does not send ``Authorization: Bearer `` (openresty 403).
         try:
             from dflow import config as _dflow_config
 
@@ -144,4 +146,5 @@ def bohr_workflow_kwargs(**kwargs: Any) -> Dict[str, Any]:
                 _dflow_config["token"] = None
         except Exception:
             pass
+        out.pop("token", None)
     return out
