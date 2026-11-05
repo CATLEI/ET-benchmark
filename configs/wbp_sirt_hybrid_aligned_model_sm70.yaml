@@ -130,7 +130,9 @@ algorithms:
       scass_type: "c16_m62_1 * NVIDIA T4"
 
   # CPU FFT only. GENFIRE-Python has no CUDA; use a CPU scass machine (not T4).
-  # Short first run: 5 iterations, oversampling 2. Paste the Bohrium URI before enabling.
+  # CPU FFT. Prefer integer oversampling (1/2/3): float ratios hit GENFIRE's
+  # paddedDim//2 float-slice bug after reconstruct. Rebuild genfire image after
+  # native_genfire int-ratio fix lands on main.
   genfire:
     enabled: true
     docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/genfire:20261104"
@@ -223,7 +225,7 @@ workflow:
   output_dir: "./results"
   execution_mode: "hybrid"
   # Max concurrent algorithm pods / Bohrium jobs in the parallel Steps row.
-  parallelism: 4
+  parallelism: 9
   # One algorithm OOM/fail must not stop scheduling the rest (Argo failFast off +
   # continueOn.failed on each algorithm step).
   continue_on_algorithm_failure: true

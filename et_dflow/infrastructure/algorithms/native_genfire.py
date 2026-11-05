@@ -53,6 +53,45 @@ def _pad_square_projections(stack_nthw: np.ndarray) -> np.ndarray:
     return out
 
 
+def _coerce_oversampling_ratio(raw: Any) -> Any:
+    """GENFIRE does ``paddedDim = dims[0] * oversamplingRatio`` then ``ncBig = paddedDim // 2``.
+
+    If ``oversamplingRatio`` is a ``float``, ``paddedDim`` stays float, ``ncBig`` stays
+    float (``512.0 // 2 == 256.0``), and the final crop raises::
+
+        TypeError: slice indices must be integers ...
+
+    Whole-number ratios must be passed as ``int``. Non-integer ratios use a mul
+    helper that always returns ``int`` paddedDim even when ``dims[0]`` is NumPy.
+    """
+    ratio = float(raw)
+    if abs(ratio - round(ratio)) < 1e-12:
+        return int(round(ratio))
+
+    class _IntPadOversampling:
+        __slots__ = ("_value",)
+
+        def __init__(self, value: float) -> None:
+            self._value = float(value)
+
+        def __float__(self) -> float:
+            return self._value
+
+        def __repr__(self) -> str:
+            return f"IntPadOversampling({self._value})"
+
+        def _mul(self, other: Any) -> int:
+            return int(round(float(other) * self._value))
+
+        def __mul__(self, other: Any) -> int:
+            return self._mul(other)
+
+        def __rmul__(self, other: Any) -> int:
+            return self._mul(other)
+
+    return _IntPadOversampling(ratio)
+
+
 def run_genfire_reconstruction(
     tilt_series: hs.signals.Signal2D,
     config: Dict[str, Any],
@@ -94,7 +133,9 @@ def run_genfire_reconstruction(
         rp.useDefaultSupport = True
         rp.resultsFilename = str(out_mrc.resolve())
         rp.numIterations = int(config.get("genfire_num_iterations", 50))
-        rp.oversamplingRatio = float(config.get("genfire_oversampling_ratio", 3))
+        rp.oversamplingRatio = _coerce_oversampling_ratio(
+            config.get("genfire_oversampling_ratio", 3)
+        )
         rp.interpolationCutoffDistance = float(
             config.get("genfire_interpolation_cutoff", 0.5)
         )

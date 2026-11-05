@@ -849,13 +849,24 @@ class BaselineBenchmarkWorkflow:
 
         def _convert_to_argo(*args, **kwargs):
             tmpl, templates = original(*args, **kwargs)
-            try:
-                tmpl.fail_fast = fail_fast
-            except Exception:
+            # Argo OpenAPI client may expose fail_fast and/or set via setattr.
+            for attr in ("fail_fast", "failFast"):
                 try:
-                    setattr(tmpl, "fail_fast", fail_fast)
+                    setattr(tmpl, attr, fail_fast)
                 except Exception:
                     pass
+            # Some client versions only serialize known local_vars_configuration fields.
+            try:
+                if hasattr(tmpl, "swagger_types") and "fail_fast" in getattr(
+                    tmpl, "swagger_types", {}
+                ):
+                    tmpl.fail_fast = fail_fast
+            except Exception:
+                pass
+            print(
+                f"[et-dflow] Steps.convert_to_argo fail_fast={getattr(tmpl, 'fail_fast', 'unset')}",
+                flush=True,
+            )
             return tmpl, templates
 
         steps.convert_to_argo = _convert_to_argo  # type: ignore[method-assign]
@@ -1140,7 +1151,9 @@ class BaselineBenchmarkWorkflow:
                 if executor is not None:
                     step_kwargs["executor"] = executor
                 if self._continue_on_algorithm_failure():
+                    # failed = nonzero exit; error = infra/OOM kill paths Argo marks Error.
                     step_kwargs["continue_on_failed"] = True
+                    step_kwargs["continue_on_error"] = True
                 alg_step = Step(
                     name=step_name,
                     template=alg_template,
@@ -1354,6 +1367,7 @@ class BaselineBenchmarkWorkflow:
                     step_kwargs["executor"] = executor
                 if self._continue_on_algorithm_failure():
                     step_kwargs["continue_on_failed"] = True
+                    step_kwargs["continue_on_error"] = True
                 alg_step = Step(
                     name=f"algorithm-{san_ds}-{_sanitize_step_segment(alg_name)}",
                     template=alg_template,
