@@ -301,21 +301,104 @@ def ensure_argo_auth_headers(*, require: bool = False) -> Dict[str, Any]:
     return summary
 
 
+def _inject_http_headers_into_api_client(api_client: Any) -> None:
+    """Copy dflow http_headers onto ApiClient.default_headers.
+
+    argo ``call_api`` does ``header_params.update(self.default_headers)``, so
+    putting Bohrium auth only in ``header_params`` can still lose to an empty
+    ``Authorization: Bearer `` left on the client from Workflow.__init__.
+    """
+    headers = dflow_config.get("http_headers") or {}
+    default = getattr(api_client, "default_headers", None)
+    if not isinstance(default, dict):
+        return
+    # Drop empty Bearer that openresty rejects.
+    auth = str(default.get("Authorization") or "")
+    if auth.strip() in ("", "Bearer", "Bearer "):
+        default.pop("Authorization", None)
+    for key, value in headers.items():
+        if value is None or value == "":
+            continue
+        if key == "Authorization" and str(value).lower().startswith("jwt "):
+            continue
+        if hasattr(api_client, "set_default_header"):
+            api_client.set_default_header(key, str(value))
+        else:
+            default[key] = str(value)
+
+
+def _preflight_argo_auth() -> None:
+    """GET workflows list; raise a clear error on openresty HTML 403."""
+    import requests
+
+    host = str(dflow_config.get("host") or "").rstrip("/")
+    namespace = str(dflow_config.get("namespace") or "argo")
+    if not host:
+        return
+    url = f"{host}/api/v1/workflows/{namespace}"
+    headers = dict(dflow_config.get("http_headers") or {})
+    try:
+        rsp = requests.get(url, headers=headers, timeout=30, verify=False)
+    except Exception as exc:
+        print(f"[et-dflow debug] Argo preflight request failed: {exc}", flush=True)
+        return
+    ctype = (rsp.headers.get("Content-Type") or "").lower()
+    body_head = (rsp.text or "")[:180].replace("\n", " ")
+    print(
+        "[et-dflow debug] Argo preflight:",
+        {
+            "status": rsp.status_code,
+            "content_type": ctype,
+            "server": rsp.headers.get("Server"),
+            "body_head": body_head,
+        },
+        flush=True,
+    )
+    if rsp.status_code == 403 and (
+        "text/html" in ctype or "openresty" in body_head.lower() or "<html" in body_head.lower()
+    ):
+        raise RuntimeError(
+            "Argo preflight GET returned openresty HTML 403 — workflow submit will fail "
+            "the same way. http_headers now="
+            f"{sorted(headers.keys())}. "
+            "Fix BOHRIUM_ACCESS_KEY so Brm-Ticket is present "
+            "(https://bohrium.dp.tech/settings/user), or set DFLOW_TOKEN. "
+            "Confirm code is up to date: git log -1 should include "
+            "'Brm-Ticket' / c6eeddd or newer."
+        )
+
+
 def refresh_workflow_argo_client(workflow: Any) -> None:
-    """Rebuild Workflow Argo API client without empty Bearer token."""
+    """Rebuild Workflow Argo API client and inject Bohrium auth headers."""
     _clear_empty_dflow_token()
-    ensure_argo_auth_headers(require=True)
+    summary = ensure_argo_auth_headers(require=True)
+    _preflight_argo_auth()
     try:
         from argo.workflows.client import WorkflowServiceApi
         from dflow.workflow import get_argo_api_client
-    except Exception:
+    except Exception as exc:
+        print(
+            f"[et-dflow debug] refresh Argo client skipped (import): {exc}",
+            flush=True,
+        )
         return
     token = dflow_config.get("token")
     if isinstance(token, str) and not token.strip():
         token = None
     workflow.token = token
-    workflow.api_instance = WorkflowServiceApi(
-        get_argo_api_client(getattr(workflow, "host", None), token)
+    api_client = get_argo_api_client(getattr(workflow, "host", None), token)
+    _inject_http_headers_into_api_client(api_client)
+    workflow.api_instance = WorkflowServiceApi(api_client)
+    print(
+        "[et-dflow debug] refreshed Argo client:",
+        {
+            "token_is_none": token is None,
+            "default_header_keys": sorted(
+                getattr(api_client, "default_headers", {}).keys()
+            ),
+            "auth_summary": summary.get("headers"),
+        },
+        flush=True,
     )
 
 
