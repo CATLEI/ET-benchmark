@@ -118,42 +118,62 @@ def _apply_bohrium_headers_to_dflow(bohrium_plugin) -> None:
     Compatible with pydflow 1.7 (no ``update_headers``) and newer releases.
     Replaces Cookie instead of appending, to avoid duplicated ``brmToken=``.
     """
-    updater = getattr(bohrium_plugin, "update_headers", None)
-    if callable(updater):
-        updater()
-        return
-
     headers = dflow_config.setdefault("http_headers", {})
     ticket = bohrium_plugin.config.get("ticket")
     authorization = bohrium_plugin.config.get("authorization")
     project_id = bohrium_plugin.config.get("project_id")
 
-    # Never put ``Authorization: jwt ...`` on Argo http_headers: modern
-    # update_headers() only sets Brm-Ticket or Cookie, and openresty on
-    # workflows.deepmodeling.com often HTML-403s non-Bearer Authorization.
+    updater = getattr(bohrium_plugin, "update_headers", None)
+    if callable(updater):
+        updater()
+        # Official update_headers only sets Brm-Ticket OR Cookie; layer jwt when both exist.
+        if ticket and authorization:
+            headers["Cookie"] = _merge_cookie(
+                headers.get("Cookie"), "brmToken=" + str(authorization)
+            )
+            headers["Authorization"] = "jwt " + str(authorization)
+        if project_id:
+            headers["Bohrium-Project-ID"] = str(project_id)
+        return
+
+    # Strip empty Bearer only; keep jwt if present (some gateways want both
+    # Brm-Ticket and jwt). Never send bare ``Authorization: Bearer ``.
     auth = str(headers.get("Authorization") or "")
-    if auth.lower().startswith("jwt "):
+    if auth.strip() in ("", "Bearer", "Bearer "):
         headers.pop("Authorization", None)
 
     if ticket:
         headers["Brm-Ticket"] = str(ticket)
-        # Prefer ticket over stale cookie when both exist.
-        cookie = str(headers.get("Cookie") or "")
-        if "brmToken=" in cookie:
-            parts = [
-                p.strip()
-                for p in cookie.split(";")
-                if p.strip() and not p.strip().startswith("brmToken=")
-            ]
-            if parts:
-                headers["Cookie"] = "; ".join(parts)
-            else:
-                headers.pop("Cookie", None)
+        # Keep password login cookie alongside ticket when available — some
+        # DeepModeling edge paths still expect brmToken even with Brm-Ticket.
+        if authorization:
+            headers["Cookie"] = _merge_cookie(
+                headers.get("Cookie"), "brmToken=" + str(authorization)
+            )
+            headers["Authorization"] = "jwt " + str(authorization)
     elif authorization:
-        headers["Cookie"] = "brmToken=" + str(authorization)
+        headers["Cookie"] = _merge_cookie(
+            headers.get("Cookie"), "brmToken=" + str(authorization)
+        )
+        headers["Authorization"] = "jwt " + str(authorization)
 
     if project_id:
         headers["Bohrium-Project-ID"] = str(project_id)
+
+
+def _merge_cookie(existing: Any, piece: str) -> str:
+    """Merge a cookie pair into a Cookie header without duplicating the key."""
+    key = piece.split("=", 1)[0].strip()
+    parts = []
+    for raw in str(existing or "").split(";"):
+        part = raw.strip()
+        if not part:
+            continue
+        if part.split("=", 1)[0].strip() == key:
+            continue
+        parts.append(part)
+    parts.append(piece)
+    return "; ".join(parts)
 
 
 def _argo_auth_header_keys(headers: Optional[Dict[str, Any]] = None) -> Dict[str, bool]:
@@ -223,21 +243,19 @@ def ensure_argo_auth_headers(*, require: bool = False) -> Dict[str, Any]:
             bohrium_plugin.config.get("username")
             and bohrium_plugin.config.get("password")
         )
-        if (
-            not bohrium_plugin.config.get("ticket")
-            and not bohrium_plugin.config.get("authorization")
-            and have_user_pass
-        ):
+        # Prefer having jwt/brmToken alongside Brm-Ticket for DeepModeling edge.
+        if have_user_pass and not bohrium_plugin.config.get("authorization"):
             bohrium_plugin.login()
-            summary["method"] = "password_login"
+            if summary.get("method") == "access_key_ticket":
+                summary["method"] = "access_key_ticket+password_login"
+            else:
+                summary["method"] = "password_login"
         elif (
             not has_update_headers
-            and not bohrium_plugin.config.get("ticket")
             and have_user_pass
             and "brmToken="
             not in str((dflow_config.get("http_headers") or {}).get("Cookie") or "")
         ):
-            # pydflow 1.7: Cookie missing — re-login to populate brmToken.
             bohrium_plugin.config["authorization"] = None
             bohrium_plugin.login()
             summary["method"] = "password_login_refresh"
@@ -327,44 +345,102 @@ def _inject_http_headers_into_api_client(api_client: Any) -> None:
             default[key] = str(value)
 
 
+def _is_openresty_html_403(rsp: Any) -> bool:
+    if getattr(rsp, "status_code", None) != 403:
+        return False
+    ctype = (rsp.headers.get("Content-Type") or "").lower()
+    body = (rsp.text or "")[:300].lower()
+    return "text/html" in ctype or "openresty" in body or "<html" in body
+
+
+def _absorb_waf_cookies(rsp: Any) -> bool:
+    """Persist Aliyun WAF ``acw_tc`` (and friends) into dflow http_headers."""
+    changed = False
+    headers = dflow_config.setdefault("http_headers", {})
+    try:
+        jar = getattr(rsp, "cookies", None)
+        if jar:
+            for name in ("acw_tc", "acw_sc__v2", "acw_sc__v3"):
+                val = jar.get(name)
+                if val:
+                    headers["Cookie"] = _merge_cookie(headers.get("Cookie"), f"{name}={val}")
+                    changed = True
+    except Exception:
+        pass
+    return changed
+
+
 def _preflight_argo_auth() -> None:
-    """GET workflows list; raise a clear error on openresty HTML 403."""
+    """GET workflows list; retry once with WAF cookies; diagnose HTML 403."""
     import requests
+    import urllib3
+
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
     host = str(dflow_config.get("host") or "").rstrip("/")
     namespace = str(dflow_config.get("namespace") or "argo")
     if not host:
         return
     url = f"{host}/api/v1/workflows/{namespace}"
-    headers = dict(dflow_config.get("http_headers") or {})
-    try:
-        rsp = requests.get(url, headers=headers, timeout=30, verify=False)
-    except Exception as exc:
-        print(f"[et-dflow debug] Argo preflight request failed: {exc}", flush=True)
-        return
-    ctype = (rsp.headers.get("Content-Type") or "").lower()
-    body_head = (rsp.text or "")[:180].replace("\n", " ")
-    print(
-        "[et-dflow debug] Argo preflight:",
-        {
-            "status": rsp.status_code,
-            "content_type": ctype,
-            "server": rsp.headers.get("Server"),
-            "body_head": body_head,
-        },
-        flush=True,
+    # Browser-like UA reduces some openresty bot scores.
+    base_headers = dict(dflow_config.get("http_headers") or {})
+    base_headers.setdefault(
+        "User-Agent",
+        "Mozilla/5.0 (compatible; et-dflow/1.0; +https://github.com/CATLEI/ET-benchmark)",
     )
-    if rsp.status_code == 403 and (
-        "text/html" in ctype or "openresty" in body_head.lower() or "<html" in body_head.lower()
-    ):
+    base_headers.setdefault("Accept", "application/json")
+
+    rsp = None
+    for attempt in range(1, 4):
+        headers = dict(dflow_config.get("http_headers") or {})
+        headers.setdefault("User-Agent", base_headers["User-Agent"])
+        headers.setdefault("Accept", base_headers["Accept"])
+        try:
+            rsp = requests.get(url, headers=headers, timeout=30, verify=False)
+        except Exception as exc:
+            print(f"[et-dflow debug] Argo preflight request failed: {exc}", flush=True)
+            return
+        ctype = (rsp.headers.get("Content-Type") or "").lower()
+        body_head = (rsp.text or "")[:180].replace("\n", " ")
+        print(
+            "[et-dflow debug] Argo preflight:",
+            {
+                "attempt": attempt,
+                "status": rsp.status_code,
+                "content_type": ctype,
+                "server": rsp.headers.get("Server"),
+                "set_cookie": bool(rsp.headers.get("Set-Cookie")),
+                "header_keys": sorted(headers.keys()),
+                "body_head": body_head,
+            },
+            flush=True,
+        )
+        if not _is_openresty_html_403(rsp):
+            break
+        if not _absorb_waf_cookies(rsp):
+            break
+
+    if rsp is not None and _is_openresty_html_403(rsp):
+        have_ticket = bool((dflow_config.get("http_headers") or {}).get("Brm-Ticket"))
+        have_cookie = "brmToken=" in str(
+            (dflow_config.get("http_headers") or {}).get("Cookie") or ""
+        )
+        if have_ticket:
+            raise RuntimeError(
+                "Argo preflight GET returned openresty HTML 403 even with Brm-Ticket "
+                f"present (keys={sorted((dflow_config.get('http_headers') or {}).keys())}, "
+                f"brmToken_cookie={have_cookie}). This is usually the DeepModeling edge/WAF "
+                "blocking the submitter IP or requiring a platform DFLOW_TOKEN, not a missing "
+                "AccessKey. Try: (1) export DFLOW_TOKEN from the Bohrium/DeepModeling workflow "
+                "console if available; (2) ensure BOHRIUM_USERNAME/PASSWORD are set so jwt "
+                "Cookie is sent with the ticket; (3) ask platform to allowlist this server IP; "
+                "(4) retry from a network that can open https://workflows.deepmodeling.com in a "
+                "browser without a captcha wall."
+            )
         raise RuntimeError(
-            "Argo preflight GET returned openresty HTML 403 — workflow submit will fail "
-            "the same way. http_headers now="
-            f"{sorted(headers.keys())}. "
-            "Fix BOHRIUM_ACCESS_KEY so Brm-Ticket is present "
-            "(https://bohrium.dp.tech/settings/user), or set DFLOW_TOKEN. "
-            "Confirm code is up to date: git log -1 should include "
-            "'Brm-Ticket' / c6eeddd or newer."
+            "Argo preflight GET returned openresty HTML 403 without Brm-Ticket. "
+            "Set a valid BOHRIUM_ACCESS_KEY (https://bohrium.dp.tech/settings/user) "
+            "or DFLOW_TOKEN."
         )
 
 
