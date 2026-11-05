@@ -104,6 +104,9 @@ dflow:
 
   # Bohr 存储 (oss-bohrium + TiefblueClient)
   s3_repo_key: "oss-bohrium"
+  s3_repo_type: "oss"
+  s3_repo:
+    oss: {}
   s3_storage_client: "dflow.plugins.bohrium.TiefblueClient"
   bohrium_username: ""
   bohrium_password: ""

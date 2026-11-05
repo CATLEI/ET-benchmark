@@ -6,12 +6,15 @@ Supports MinIO (self-hosted) and Bohr/Tiefblue (玻尔空间站) backends.
 """
 
 import importlib
+import json
 import os
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 from dflow import config as dflow_config, s3_config as dflow_s3_config, set_s3_config
 from et_dflow.core.config import get_config_manager
+from et_dflow.infrastructure.workflows.dflow_repo_stub import ensure_bohr_artifact_repo_stub
+
 
 
 def _resolve_storage_client(spec: str):
@@ -27,6 +30,13 @@ def _resolve_storage_client(spec: str):
         return cls()
     except Exception:
         return None
+
+
+def _parse_repo_value(value: Any) -> Any:
+    """Accept dict or JSON string for s3_repo / DFLOW_S3_REPO."""
+    if isinstance(value, str):
+        return json.loads(value)
+    return value
 
 
 def _apply_bohrium_config(
@@ -61,6 +71,69 @@ def _apply_bohrium_config(
             bohrium.config["access_key"] = os.getenv("BOHRIUM_ACCESS_KEY", "")
         if os.getenv("BOHRIUM_APP_KEY") is not None:
             bohrium.config["app_key"] = os.getenv("BOHRIUM_APP_KEY", "")
+        if os.getenv("BOHRIUM_TICKET") is not None:
+            bohrium.config["ticket"] = os.getenv("BOHRIUM_TICKET", "")
+        if os.getenv("BOHRIUM_AUTHORIZATION") is not None:
+            bohrium.config["authorization"] = os.getenv("BOHRIUM_AUTHORIZATION", "")
+
+
+def _attach_bohrium_http_headers() -> None:
+    """Promote Bohrium ticket / login cookie onto dflow Argo http_headers."""
+    try:
+        from dflow.plugins import bohrium as bohrium_plugin
+    except ImportError:
+        return
+
+    try:
+        if bohrium_plugin.config.get("access_key") and not bohrium_plugin.config.get("ticket"):
+            import requests
+
+            rsp = requests.get(
+                (bohrium_plugin.config.get("openapi_url") or "https://openapi.dp.tech")
+                + "/openapi/v1/ticket/get",
+                headers={"x-app-key": bohrium_plugin.config.get("app_key") or ""},
+                params={"accessKey": bohrium_plugin.config["access_key"]},
+                timeout=60,
+            )
+            res = json.loads(rsp.text)
+            if res.get("code") in (0, "0000", 200, "200"):
+                ticket = (res.get("data") or {}).get("ticket")
+                if ticket:
+                    bohrium_plugin.config["ticket"] = ticket
+                    bohrium_plugin.update_headers()
+                    print(
+                        "[et-dflow debug] Bohrium ticket attached to dflow http_headers",
+                        flush=True,
+                    )
+            else:
+                print(
+                    "[et-dflow debug] Bohrium ticket exchange failed: %s"
+                    % (res.get("error") or res.get("message") or res),
+                    flush=True,
+                )
+        elif (
+            bohrium_plugin.config.get("username")
+            and bohrium_plugin.config.get("password")
+            and not bohrium_plugin.config.get("ticket")
+            and not bohrium_plugin.config.get("authorization")
+        ):
+            bohrium_plugin.login()
+            print(
+                "[et-dflow debug] Bohrium login attached to dflow http_headers",
+                flush=True,
+            )
+        elif bohrium_plugin.config.get("ticket") or bohrium_plugin.config.get(
+            "authorization"
+        ):
+            bohrium_plugin.update_headers()
+        elif bohrium_plugin.config.get("project_id"):
+            # Project id alone still belongs on headers when present.
+            bohrium_plugin.update_headers()
+    except Exception as exc:
+        print(
+            "[et-dflow debug] Bohrium header setup skipped: %s" % exc,
+            flush=True,
+        )
 
 
 def _boolize(value: Any) -> bool:
@@ -89,10 +162,12 @@ def configure_dflow(
             MinIO: host, namespace, k8s_api_server, mode, s3_endpoint, s3_bucket_name,
             s3_access_key, s3_secret_key, s3_secure, s3_console.
             Bohr (玻尔): host, namespace, k8s_api_server, token (empty), s3_repo_key
-            (oss-bohrium), s3_storage_client (dflow.plugins.bohrium.TiefblueClient),
-            bohrium_username, bohrium_password, bohrium_project_id,
-            bohrium_access_key, bohrium_app_key (prefer env BOHRIUM_ACCESS_KEY /
-            BOHRIUM_APP_KEY; access_key exchanges a ticket without password).
+            (oss-bohrium), s3_repo / s3_repo_type (convert_to_argo stub; prefer
+            ``oss: {}`` / ``oss``), s3_storage_client
+            (dflow.plugins.bohrium.TiefblueClient), bohrium_username,
+            bohrium_password, bohrium_project_id, bohrium_access_key,
+            bohrium_app_key (prefer env BOHRIUM_ACCESS_KEY / BOHRIUM_APP_KEY;
+            access_key exchanges a ticket without password).
         workflow_output_dir: Optional output dir from workflow config (e.g. config["workflow"]["output_dir"]).
         run_dir: Reserved for backward compatibility. Remote mode does not use local debug workdirs.
     """
@@ -141,6 +216,10 @@ def configure_dflow(
         # Bohr/Tiefblue (玻尔空间站): 必须先设置 bohrium.config，再创建 TiefblueClient
         if "s3_repo_key" in dflow_section:
             s3_updates["repo_key"] = str(dflow_section["s3_repo_key"])
+        if "s3_repo_type" in dflow_section:
+            s3_updates["repo_type"] = str(dflow_section["s3_repo_type"])
+        if "s3_repo" in dflow_section:
+            s3_updates["repo"] = _parse_repo_value(dflow_section["s3_repo"])
         # 先设置 Bohrium 凭据（YAML + 环境变量覆盖），TiefblueClient() 初始化时会读取
         _apply_bohrium_config(dflow_section, from_yaml=True)
         _apply_bohrium_config(from_env=True)
@@ -181,6 +260,10 @@ def configure_dflow(
     # Bohr/Tiefblue
     if os.getenv("DFLOW_S3_REPO_KEY"):
         set_s3_config(repo_key=os.getenv("DFLOW_S3_REPO_KEY"))
+    if os.getenv("DFLOW_S3_REPO_TYPE"):
+        set_s3_config(repo_type=os.getenv("DFLOW_S3_REPO_TYPE"))
+    if os.getenv("DFLOW_S3_REPO"):
+        set_s3_config(repo=_parse_repo_value(os.getenv("DFLOW_S3_REPO")))
     _apply_bohrium_config(from_env=True)
     if os.getenv("DFLOW_S3_STORAGE_CLIENT"):
         client = _resolve_storage_client(os.getenv("DFLOW_S3_STORAGE_CLIENT"))
@@ -200,52 +283,10 @@ def configure_dflow(
     )
     if use_bohr:
         set_s3_config(endpoint=None, bucket_name=None)
-        # Keep repo non-None so later parse_repo() calls do not hit K8s ConfigMap.
+        # Keep nested {"oss":{}} so convert_to_argo can assign loc["oss"]["key"].
         # Artifact I/O goes through TiefblueClient, not artifact-repositories.
-        if dflow_s3_config.get("repo") is None:
-            set_s3_config(repo={})
-        # Promote Bohrium access_key → Brm-Ticket on dflow HTTP headers (Argo API).
-        try:
-            from dflow.plugins import bohrium as bohrium_plugin
-
-            if bohrium_plugin.config.get("access_key") and not bohrium_plugin.config.get(
-                "ticket"
-            ):
-                import json
-                import requests
-
-                rsp = requests.get(
-                    (bohrium_plugin.config.get("openapi_url") or "https://openapi.dp.tech")
-                    + "/openapi/v1/ticket/get",
-                    headers={"x-app-key": bohrium_plugin.config.get("app_key") or ""},
-                    params={"accessKey": bohrium_plugin.config["access_key"]},
-                    timeout=60,
-                )
-                res = json.loads(rsp.text)
-                if res.get("code") in (0, "0000", 200, "200"):
-                    ticket = (res.get("data") or {}).get("ticket")
-                    if ticket:
-                        bohrium_plugin.config["ticket"] = ticket
-                        bohrium_plugin.update_headers()
-                        print(
-                            "[et-dflow debug] Bohrium ticket attached to dflow http_headers",
-                            flush=True,
-                        )
-                else:
-                    print(
-                        "[et-dflow debug] Bohrium ticket exchange failed: %s"
-                        % (res.get("error") or res.get("message") or res),
-                        flush=True,
-                    )
-            elif bohrium_plugin.config.get("ticket") or bohrium_plugin.config.get(
-                "authorization"
-            ):
-                bohrium_plugin.update_headers()
-        except Exception as exc:
-            print(
-                "[et-dflow debug] Bohrium header setup skipped: %s" % exc,
-                flush=True,
-            )
+        ensure_bohr_artifact_repo_stub()
+        _attach_bohrium_http_headers()
 
     # Prefer https for the public workflow gateway.
     for key in ("host", "k8s_api_server"):
@@ -262,6 +303,8 @@ def configure_dflow(
         "token_len": len(dflow_config.get("token") or ""),
         "bohr": bool(use_bohr),
         "s3_repo_key": dflow_s3_config.get("repo_key"),
+        "s3_repo_type": dflow_s3_config.get("repo_type"),
+        "s3_repo": dflow_s3_config.get("repo"),
         "s3_repo_set": dflow_s3_config.get("repo") is not None,
     }
     print("[et-dflow debug] dflow_config summary:", debug_view)

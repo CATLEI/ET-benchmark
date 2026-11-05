@@ -255,6 +255,11 @@ dflow:
   # Ignored if set here — export DFLOW_TOKEN instead (never commit secrets).
   token: ""
   s3_repo_key: "oss-bohrium"
+  # Stub for convert_to_argo when ConfigMap artifact-repositories is unreachable
+  # (empty DFLOW_TOKEN). Real artifact I/O uses TiefblueClient.
+  s3_repo_type: "oss"
+  s3_repo:
+    oss: {}
   s3_storage_client: "dflow.plugins.bohrium.TiefblueClient"
   bohrium_username: ""
   bohrium_password: ""

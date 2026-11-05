@@ -5,10 +5,14 @@ Environment bootstrap that must run BEFORE any ``import dflow``.
 (e.g. ``oss-bohrium``) and ``DFLOW_TOKEN`` is missing, that hits the K8s API and
 often returns an openresty HTML 403. Bohrium artifact storage uses Tiefblue and
 does not need that ConfigMap read when ``DFLOW_S3_REPO`` is already non-null.
+
+The stub must be ``{"oss":{}}`` (not bare ``{}``) and ``DFLOW_S3_REPO_TYPE=oss``
+so later ``convert_to_argo`` can assign ``loc["oss"]["key"]``.
 """
 
 from __future__ import annotations
 
+import json
 import os
 from typing import Any, Dict, Optional
 
@@ -16,6 +20,10 @@ _WF_HOSTS = (
     "http://workflows.deepmodeling.com",
     "https://workflows.deepmodeling.com",
 )
+
+# Shape required by dflow convert_to_argo: loc[repo_type]["key"] = ...
+_DEFAULT_BOHR_REPO_JSON = '{"oss":{}}'
+_DEFAULT_BOHR_REPO_TYPE = "oss"
 
 
 def _is_bohr(dflow_section: Optional[Dict[str, Any]]) -> bool:
@@ -42,6 +50,15 @@ def _force_https_workflow_host(var_name: str) -> None:
         os.environ[var_name] = "https://workflows.deepmodeling.com"
 
 
+def _repo_stub_ok(raw: str) -> bool:
+    """Return True if DFLOW_S3_REPO JSON is a dict with nested oss dict."""
+    try:
+        data = json.loads(raw)
+    except Exception:
+        return False
+    return isinstance(data, dict) and isinstance(data.get("oss"), dict)
+
+
 def bootstrap_dflow_env(dflow_section: Optional[Dict[str, Any]] = None) -> None:
     """Mutate ``os.environ`` so a subsequent ``import dflow`` does not 403."""
     section = dflow_section or {}
@@ -66,17 +83,34 @@ def bootstrap_dflow_env(dflow_section: Optional[Dict[str, Any]] = None) -> None:
     if not os.getenv("DFLOW_S3_REPO_KEY") and section.get("s3_repo_key"):
         os.environ["DFLOW_S3_REPO_KEY"] = str(section["s3_repo_key"])
 
+    # Optional yaml / env overrides applied even when DFLOW_TOKEN is set.
+    if not (os.environ.get("DFLOW_S3_REPO_TYPE") or "").strip():
+        yaml_type = section.get("s3_repo_type")
+        if yaml_type:
+            os.environ["DFLOW_S3_REPO_TYPE"] = str(yaml_type)
+
+    yaml_repo = section.get("s3_repo")
+    if yaml_repo is not None and not (os.environ.get("DFLOW_S3_REPO") or "").strip():
+        if isinstance(yaml_repo, str):
+            os.environ["DFLOW_S3_REPO"] = yaml_repo
+        else:
+            os.environ["DFLOW_S3_REPO"] = json.dumps(yaml_repo)
+
     # Skip import-time ConfigMap fetch when no Argo/K8s token is available.
     # TiefblueClient (configured after import) replaces artifact-repositories.
     token = (os.environ.get("DFLOW_TOKEN") or "").strip()
     if token:
         return
 
-    # Non-null JSON makes dflow.s3_config["repo"] truthy → parse_repo no-ops.
-    if not (os.environ.get("DFLOW_S3_REPO") or "").strip():
-        os.environ["DFLOW_S3_REPO"] = "{}"
+    raw = (os.environ.get("DFLOW_S3_REPO") or "").strip()
+    if not _repo_stub_ok(raw):
+        os.environ["DFLOW_S3_REPO"] = _DEFAULT_BOHR_REPO_JSON
         print(
-            "[et-dflow] DFLOW_TOKEN unset: skip dflow import-time ConfigMap "
-            "parse (Bohrium/Tiefblue). Set DFLOW_TOKEN if Argo submit still 403s.",
+            "[et-dflow] DFLOW_TOKEN unset: set DFLOW_S3_REPO="
+            f"{_DEFAULT_BOHR_REPO_JSON} to skip ConfigMap parse "
+            "(Bohrium/Tiefblue). Set DFLOW_TOKEN if Argo submit still 403s.",
             flush=True,
         )
+
+    if not (os.environ.get("DFLOW_S3_REPO_TYPE") or "").strip():
+        os.environ["DFLOW_S3_REPO_TYPE"] = _DEFAULT_BOHR_REPO_TYPE

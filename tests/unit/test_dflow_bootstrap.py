@@ -1,19 +1,35 @@
 """Tests for pre-import dflow environment bootstrap."""
 
+import json
 import os
 
 from et_dflow.infrastructure.workflows.dflow_bootstrap import bootstrap_dflow_env
 
 
-def test_bootstrap_sets_repo_json_when_bohr_without_token(monkeypatch):
+def test_bootstrap_sets_nested_oss_repo_when_bohr_without_token(monkeypatch):
     monkeypatch.setenv("BOHRIUM_ACCESS_KEY", "dummy")
     monkeypatch.setenv("DFLOW_S3_REPO_KEY", "oss-bohrium")
     monkeypatch.delenv("DFLOW_TOKEN", raising=False)
     monkeypatch.delenv("DFLOW_S3_REPO", raising=False)
+    monkeypatch.delenv("DFLOW_S3_REPO_TYPE", raising=False)
 
     bootstrap_dflow_env({"s3_repo_key": "oss-bohrium"})
 
-    assert os.environ["DFLOW_S3_REPO"] == "{}"
+    assert json.loads(os.environ["DFLOW_S3_REPO"]) == {"oss": {}}
+    assert os.environ["DFLOW_S3_REPO_TYPE"] == "oss"
+
+
+def test_bootstrap_rewrites_bare_empty_object_stub(monkeypatch):
+    monkeypatch.setenv("BOHRIUM_ACCESS_KEY", "dummy")
+    monkeypatch.setenv("DFLOW_S3_REPO_KEY", "oss-bohrium")
+    monkeypatch.delenv("DFLOW_TOKEN", raising=False)
+    monkeypatch.setenv("DFLOW_S3_REPO", "{}")
+    monkeypatch.delenv("DFLOW_S3_REPO_TYPE", raising=False)
+
+    bootstrap_dflow_env({"s3_repo_key": "oss-bohrium"})
+
+    assert json.loads(os.environ["DFLOW_S3_REPO"]) == {"oss": {}}
+    assert os.environ["DFLOW_S3_REPO_TYPE"] == "oss"
 
 
 def test_bootstrap_keeps_repo_when_token_present(monkeypatch):
@@ -41,3 +57,21 @@ def test_bootstrap_upgrades_http_host_from_yaml(monkeypatch):
 
     assert os.environ["DFLOW_HOST"] == "https://workflows.deepmodeling.com"
     assert os.environ["DFLOW_K8S_API_SERVER"] == "https://workflows.deepmodeling.com"
+
+
+def test_bootstrap_reads_yaml_s3_repo_fields(monkeypatch):
+    monkeypatch.setenv("BOHRIUM_ACCESS_KEY", "dummy")
+    monkeypatch.delenv("DFLOW_TOKEN", raising=False)
+    monkeypatch.delenv("DFLOW_S3_REPO", raising=False)
+    monkeypatch.delenv("DFLOW_S3_REPO_TYPE", raising=False)
+
+    bootstrap_dflow_env(
+        {
+            "s3_repo_key": "oss-bohrium",
+            "s3_repo_type": "oss",
+            "s3_repo": {"oss": {}},
+        }
+    )
+
+    assert json.loads(os.environ["DFLOW_S3_REPO"]) == {"oss": {}}
+    assert os.environ["DFLOW_S3_REPO_TYPE"] == "oss"

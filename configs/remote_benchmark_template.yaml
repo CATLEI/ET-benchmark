@@ -75,6 +75,10 @@ dflow:
 
   # 玻尔空间站 (Bohr Space Station)，推荐用环境变量 BOHRIUM_USERNAME/PASSWORD/PROJECT_ID 避免密码明文
   s3_repo_key: "oss-bohrium"
+  # Empty-token submit stub (skip ConfigMap); Tiefblue handles real I/O
+  s3_repo_type: "oss"
+  s3_repo:
+    oss: {}
   s3_storage_client: "dflow.plugins.bohrium.TiefblueClient"
   bohrium_username: ""
   bohrium_password: ""
