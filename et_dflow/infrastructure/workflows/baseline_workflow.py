@@ -821,6 +821,46 @@ class BaselineBenchmarkWorkflow:
                     continue
         return None
 
+    def _continue_on_algorithm_failure(self) -> bool:
+        """If True, one failed algorithm must not block remaining parallel algorithms."""
+        wf = self.config.get("workflow") or {}
+        suite = self.config.get("benchmark_suite") or {}
+        for src in (wf, suite):
+            if "continue_on_algorithm_failure" in src:
+                return bool(src.get("continue_on_algorithm_failure"))
+            # fail_fast: false → keep going (inverse of Argo failFast).
+            if "fail_fast" in src:
+                return not bool(src.get("fail_fast"))
+        return False
+
+    @staticmethod
+    def _steps_with_optional_fail_fast(
+        name: str,
+        step_rows: List[Union[Step, List[Step]]],
+        parallelism: Optional[int],
+        *,
+        fail_fast: Optional[bool] = None,
+    ) -> Steps:
+        """Build ``Steps``; when ``fail_fast`` is False, force Argo ``failFast: false``."""
+        steps = Steps(name=name, steps=step_rows, parallelism=parallelism)
+        if fail_fast is None:
+            return steps
+        original = steps.convert_to_argo
+
+        def _convert_to_argo(*args, **kwargs):
+            tmpl, templates = original(*args, **kwargs)
+            try:
+                tmpl.fail_fast = fail_fast
+            except Exception:
+                try:
+                    setattr(tmpl, "fail_fast", fail_fast)
+                except Exception:
+                    pass
+            return tmpl, templates
+
+        steps.convert_to_argo = _convert_to_argo  # type: ignore[method-assign]
+        return steps
+
     @staticmethod
     def _count_steps_in_rows(rows: List[Union[Step, List[Step]]]) -> int:
         n = 0
@@ -1099,6 +1139,8 @@ class BaselineBenchmarkWorkflow:
                 step_kwargs: Dict[str, Any] = {}
                 if executor is not None:
                     step_kwargs["executor"] = executor
+                if self._continue_on_algorithm_failure():
+                    step_kwargs["continue_on_failed"] = True
                 alg_step = Step(
                     name=step_name,
                     template=alg_template,
@@ -1126,13 +1168,15 @@ class BaselineBenchmarkWorkflow:
 
         para = self._workflow_steps_parallelism()
         step_rows: List[Union[Step, List[Step]]] = [algorithm_steps]
+        cont = self._continue_on_algorithm_failure()
         return Workflow(
             **bohr_workflow_kwargs(
                 name=workflow_name,
-                steps=Steps(
-                    name=workflow_name + "-steps",
-                    steps=step_rows,
-                    parallelism=para,
+                steps=self._steps_with_optional_fail_fast(
+                    workflow_name + "-steps",
+                    step_rows,
+                    para,
+                    fail_fast=False if cont else None,
                 ),
             )
         )
@@ -1308,6 +1352,8 @@ class BaselineBenchmarkWorkflow:
                 step_kwargs: Dict[str, Any] = {}
                 if executor is not None:
                     step_kwargs["executor"] = executor
+                if self._continue_on_algorithm_failure():
+                    step_kwargs["continue_on_failed"] = True
                 alg_step = Step(
                     name=f"algorithm-{san_ds}-{_sanitize_step_segment(alg_name)}",
                     template=alg_template,
@@ -1335,6 +1381,11 @@ class BaselineBenchmarkWorkflow:
             }
             if "ground_truth" in dp_step.outputs.artifacts:
                 eval_artifacts["ground_truth"] = dp_step.outputs.artifacts["ground_truth"]
+            eval_kwargs: Dict[str, Any] = {}
+            if self._continue_on_algorithm_failure():
+                # Failed algorithm artifacts would otherwise fail this eval and
+                # stop sibling evaluations under Argo failFast.
+                eval_kwargs["continue_on_failed"] = True
             eval_step = Step(
                 name=f"evaluation-{san_ds}-{san_alg}",
                 template=eval_template,
@@ -1347,6 +1398,7 @@ class BaselineBenchmarkWorkflow:
                     "evaluation_config": eval_config,
                 },
                 artifacts=eval_artifacts,
+                **eval_kwargs,
             )
             evaluation_steps.append(eval_step)
 
@@ -1436,19 +1488,23 @@ class BaselineBenchmarkWorkflow:
         workflow_name = workflow_config.get("name", "baseline-benchmark")
         para = self._workflow_steps_parallelism()
         flat_count = self._count_steps_in_rows(step_rows)
+        cont = self._continue_on_algorithm_failure()
         workflow_kwargs = {
             "name": workflow_name,
             "steps_name": workflow_name + "-steps",
             "steps_count": flat_count,
+            "parallelism": para,
+            "continue_on_algorithm_failure": cont,
         }
         print("[et-dflow debug] Workflow(...) args:", workflow_kwargs)
         return Workflow(
             **bohr_workflow_kwargs(
                 name=workflow_name,
-                steps=Steps(
-                    name=workflow_name + "-steps",
-                    steps=step_rows,
-                    parallelism=para,
+                steps=self._steps_with_optional_fail_fast(
+                    workflow_name + "-steps",
+                    step_rows,
+                    para,
+                    fail_fast=False if cont else None,
                 ),
             )
         )

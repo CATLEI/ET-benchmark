@@ -138,7 +138,7 @@ algorithms:
       use_native: true
       allow_placeholder: false
       genfire_num_iterations: 5
-      genfire_oversampling_ratio: 2
+      genfire_oversampling_ratio: 1
       genfire_gridding_method: "FFT"
       tilt_range: [-70, 70]
     resources:
@@ -146,7 +146,7 @@ algorithms:
       memory: "64Gi"
       gpu: false
       # Same memory class as sirt; GENFIRE CPU iterations are memory-heavy.
-      scass_type: "c32_m64_cpu"
+      scass_type: "c24_m96_cpu"
 
   # Even/odd ramp FBP + ddw prepare/fit/refine inside one GPU pod.
   # mw_angle is derived as 180-(α_max-α_min); do not copy missing_wedge_angle: 70.
@@ -222,7 +222,11 @@ workflow:
   type: "baseline_benchmark"
   output_dir: "./results"
   execution_mode: "hybrid"
-  parallelism: 2
+  # Max concurrent algorithm pods / Bohrium jobs in the parallel Steps row.
+  parallelism: 4
+  # One algorithm OOM/fail must not stop scheduling the rest (Argo failFast off +
+  # continueOn.failed on each algorithm step).
+  continue_on_algorithm_failure: true
 
 runtime_profiles:
   cpu_sirt_default:
