@@ -1527,8 +1527,8 @@ class BaselineBenchmarkWorkflow:
         workflow = self.build_workflow()
         from dflow import config as dflow_config
         from et_dflow.infrastructure.workflows.dflow_config import (
-            ensure_argo_auth_headers,
             refresh_workflow_argo_client,
+            submit_workflow_with_waf_retry,
         )
 
         # Empty DFLOW_TOKEN relies on Bohrium Brm-Ticket/Cookie in http_headers.
@@ -1559,7 +1559,8 @@ class BaselineBenchmarkWorkflow:
                     for ds, alg in pairs
                 )
                 print(f"[et-dflow] Matching evaluation step(s) (remote mode): {eval_labels}")
-        submit_result = workflow.submit()
+        # Aliyun openresty may 403 once with Set-Cookie: acw_tc; retry with it.
+        submit_result = submit_workflow_with_waf_retry(workflow)
         workflow_id = self._normalize_workflow_id(submit_result)
         self._submitted_workflow = workflow
         self._submitted_workflow_id = workflow_id

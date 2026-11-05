@@ -299,6 +299,21 @@ def ensure_argo_auth_headers(*, require: bool = False) -> Dict[str, Any]:
     return summary
 
 
+def _merge_cookie(existing: Any, piece: str) -> str:
+    """Merge a cookie pair into a Cookie header without duplicating the key."""
+    key = piece.split("=", 1)[0].strip()
+    parts = []
+    for raw in str(existing or "").split(";"):
+        part = raw.strip()
+        if not part:
+            continue
+        if part.split("=", 1)[0].strip() == key:
+            continue
+        parts.append(part)
+    parts.append(piece)
+    return "; ".join(parts)
+
+
 def _inject_http_headers_into_api_client(api_client: Any) -> None:
     """Copy dflow http_headers onto ApiClient.default_headers.
 
@@ -325,11 +340,76 @@ def _inject_http_headers_into_api_client(api_client: Any) -> None:
             default[key] = str(value)
 
 
+def _is_openresty_html_403(exc: Any) -> bool:
+    """True when the edge returned Aliyun/openresty HTML 403 (not Argo JSON)."""
+    status = getattr(exc, "status", None)
+    if status is None and getattr(exc, "http_resp", None) is not None:
+        status = getattr(exc.http_resp, "status", None)
+    if status != 403:
+        return False
+    headers = getattr(exc, "headers", None) or {}
+    try:
+        server = str(headers.get("Server") or headers.get("server") or "").lower()
+        ctype = str(
+            headers.get("Content-Type") or headers.get("content-type") or ""
+        ).lower()
+    except Exception:
+        server, ctype = "", ""
+    body = str(getattr(exc, "body", None) or "")[:400].lower()
+    return (
+        "openresty" in server
+        or "text/html" in ctype
+        or "openresty" in body
+        or "<html" in body
+    )
+
+
+def absorb_waf_cookies_from_exception(exc: Any) -> bool:
+    """Persist Aliyun WAF ``acw_tc`` (etc.) from a 403 response into http_headers.
+
+    The edge often answers the first API call with HTML 403 + ``Set-Cookie: acw_tc=...``.
+    Browsers retry with that cookie; the Argo Python client does not, so we must.
+    Does not add a custom User-Agent.
+    """
+    headers_out = dflow_config.setdefault("http_headers", {})
+    changed = False
+    raw_set_cookie = ""
+    hdrs = getattr(exc, "headers", None)
+    if hdrs is not None:
+        try:
+            raw_set_cookie = str(
+                hdrs.get("Set-Cookie") or hdrs.get("set-cookie") or ""
+            )
+        except Exception:
+            raw_set_cookie = ""
+    if not raw_set_cookie and getattr(exc, "http_resp", None) is not None:
+        try:
+            raw_set_cookie = str(
+                getattr(exc.http_resp, "getheader", lambda *_: "")("Set-Cookie") or ""
+            )
+        except Exception:
+            pass
+
+    for name in ("acw_tc", "acw_sc__v2", "acw_sc__v3"):
+        # Set-Cookie may be a single string; take first name=value occurrence.
+        marker = name + "="
+        idx = raw_set_cookie.find(marker)
+        if idx < 0:
+            continue
+        rest = raw_set_cookie[idx + len(marker) :]
+        val = rest.split(";", 1)[0].strip()
+        if not val:
+            continue
+        headers_out["Cookie"] = _merge_cookie(headers_out.get("Cookie"), f"{name}={val}")
+        changed = True
+    return changed
+
+
 def refresh_workflow_argo_client(workflow: Any) -> None:
     """Rebuild Workflow Argo API client with stock-like Bohrium headers only.
 
-    No preflight GET and no custom User-Agent — those look more like bots than
-    vanilla ``Workflow.submit()`` and are unnecessary once headers are set.
+    No custom User-Agent. WAF ``acw_tc`` handling is done via one submit retry
+    (see ``submit_workflow_with_waf_retry``), not a preflight GET.
     """
     _clear_empty_dflow_token()
     summary = ensure_argo_auth_headers(require=True)
@@ -361,6 +441,61 @@ def refresh_workflow_argo_client(workflow: Any) -> None:
         },
         flush=True,
     )
+
+
+def _iter_acw_cookie_pairs(cookie_header: Any):
+    for raw in str(cookie_header or "").split(";"):
+        part = raw.strip()
+        if part.startswith("acw_"):
+            yield part
+
+
+def submit_workflow_with_waf_retry(workflow: Any) -> Any:
+    """``workflow.submit()`` with one retry after Aliyun openresty ``acw_tc`` 403.
+
+    Keeps Bohrium auth as stock XOR (ticket or brmToken). Only adds WAF cookies
+    that the gateway itself Set-Cookie'd on the failed response.
+    """
+    try:
+        return workflow.submit()
+    except Exception as exc:
+        if not _is_openresty_html_403(exc):
+            raise
+        absorbed = absorb_waf_cookies_from_exception(exc)
+        print(
+            "[et-dflow debug] openresty HTML 403 on submit; "
+            f"absorbed_waf_cookies={absorbed}; retrying once",
+            flush=True,
+        )
+        if not absorbed:
+            raise RuntimeError(
+                "Argo submit got openresty HTML 403 with no acw_tc cookie to retry. "
+                "This is the DeepModeling/Aliyun edge WAF, not a missing algorithm "
+                "config. Set DFLOW_TOKEN from the Bohrium/DeepModeling console if "
+                "available, or ask the platform to allowlist this submitter IP."
+            ) from exc
+        # Preserve acw_* across refresh: stock update_headers may rewrite Cookie.
+        acw_pairs = list(
+            _iter_acw_cookie_pairs((dflow_config.get("http_headers") or {}).get("Cookie"))
+        )
+        refresh_workflow_argo_client(workflow)
+        headers = dflow_config.setdefault("http_headers", {})
+        for pair in acw_pairs:
+            headers["Cookie"] = _merge_cookie(headers.get("Cookie"), pair)
+        # Re-inject so ApiClient sees the WAF cookie.
+        api_client = getattr(getattr(workflow, "api_instance", None), "api_client", None)
+        if api_client is not None:
+            _inject_http_headers_into_api_client(api_client)
+        try:
+            return workflow.submit()
+        except Exception as retry_exc:
+            if _is_openresty_html_403(retry_exc):
+                raise RuntimeError(
+                    "Argo submit still openresty HTML 403 after sending acw_tc. "
+                    "Edge WAF is blocking this host. Use DFLOW_TOKEN or an allowlisted "
+                    "network; Bohrium AccessKey/password alone cannot bypass it."
+                ) from retry_exc
+            raise
 
 
 def _attach_bohrium_http_headers() -> None:
