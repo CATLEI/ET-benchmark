@@ -22,7 +22,7 @@ from et_dflow.infrastructure.workflows.ops.comparison_op import ComparisonOP
 from et_dflow.infrastructure.workflows.ops.export_results_op import ExportResultsOP
 from et_dflow.infrastructure.workflows.ops.preprocessing_evaluation_op import PreprocessingEvaluationOP
 from et_dflow.infrastructure.workflows.dflow_config import configure_dflow
-from et_dflow.infrastructure.workflows.dflow_repo_stub import ensure_bohr_artifact_repo_stub
+from et_dflow.infrastructure.workflows.dflow_repo_stub import bohr_workflow_kwargs
 
 
 
@@ -1101,14 +1101,15 @@ class BaselineBenchmarkWorkflow:
 
         para = self._workflow_steps_parallelism()
         step_rows: List[Union[Step, List[Step]]] = [algorithm_steps]
-        ensure_bohr_artifact_repo_stub()
         return Workflow(
-            name=workflow_name,
-            steps=Steps(
-                name=workflow_name + "-steps",
-                steps=step_rows,
-                parallelism=para,
-            ),
+            **bohr_workflow_kwargs(
+                name=workflow_name,
+                steps=Steps(
+                    name=workflow_name + "-steps",
+                    steps=step_rows,
+                    parallelism=para,
+                ),
+            )
         )
 
     def _build_workflow_remote(
@@ -1416,14 +1417,15 @@ class BaselineBenchmarkWorkflow:
             "steps_count": flat_count,
         }
         print("[et-dflow debug] Workflow(...) args:", workflow_kwargs)
-        ensure_bohr_artifact_repo_stub()
         return Workflow(
-            name=workflow_name,
-            steps=Steps(
-                name=workflow_name + "-steps",
-                steps=step_rows,
-                parallelism=para,
-            ),
+            **bohr_workflow_kwargs(
+                name=workflow_name,
+                steps=Steps(
+                    name=workflow_name + "-steps",
+                    steps=step_rows,
+                    parallelism=para,
+                ),
+            )
         )
 
     @staticmethod
