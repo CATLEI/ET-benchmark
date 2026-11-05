@@ -653,10 +653,10 @@ def configure_dflow(
     )
     if use_bohr:
         set_s3_config(endpoint=None, bucket_name=None)
-        # Keep nested {"oss":{}} so convert_to_argo can assign loc["oss"]["key"].
-        # Artifact I/O goes through TiefblueClient, not artifact-repositories.
-        ensure_bohr_artifact_repo_stub()
+        # Auth first so ConfigMap artifact-repositories fetch can use Brm-Ticket.
+        # Then load real oss-bohrium (or stub+artifactRepositoryRef fallback).
         _attach_bohrium_http_headers()
+        ensure_bohr_artifact_repo_stub()
 
     # Prefer https for the public workflow gateway.
     for key in ("host", "k8s_api_server"):

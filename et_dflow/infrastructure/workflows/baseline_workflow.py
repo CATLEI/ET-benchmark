@@ -1530,10 +1530,16 @@ class BaselineBenchmarkWorkflow:
             refresh_workflow_argo_client,
             submit_workflow_with_waf_retry,
         )
+        from et_dflow.infrastructure.workflows.dflow_repo_stub import (
+            finalize_bohr_artifact_repo_for_submit,
+        )
 
         # Empty DFLOW_TOKEN relies on Bohrium Brm-Ticket/Cookie in http_headers.
         # Rebuild Argo client so an empty Bearer from Workflow.__init__ is dropped.
         refresh_workflow_argo_client(workflow)
+        # Fetch real oss-bohrium (with Brm-Ticket) or clear empty stub so Argo
+        # uses artifactRepositoryRef instead of broken archive_location.
+        finalize_bohr_artifact_repo_for_submit()
         submit_view = {
             "host": dflow_config.get("host"),
             "namespace": dflow_config.get("namespace"),
