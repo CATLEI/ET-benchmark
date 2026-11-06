@@ -1,5 +1,8 @@
 #!/bin/sh
 set -e
+# Bohrium GPU visibility (kept out of Dockerfile.bohr to avoid paste UI crashes).
+export NVIDIA_VISIBLE_DEVICES="${NVIDIA_VISIBLE_DEVICES:-all}"
+export NVIDIA_DRIVER_CAPABILITIES="${NVIDIA_DRIVER_CAPABILITIES:-compute,utility}"
 # A blank CUDA_VISIBLE_DEVICES hides every GPU from TensorFlow.
 if [ -n "${CUDA_VISIBLE_DEVICES+x}" ] && [ -z "${CUDA_VISIBLE_DEVICES}" ]; then
     unset CUDA_VISIBLE_DEVICES
