@@ -1,0 +1,2 @@
+# Force LF for shell scripts (Bohrium bash rejects set -o pipefail with CRLF).
+*.sh text eol=lf
