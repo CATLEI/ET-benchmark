@@ -1,8 +1,11 @@
 """Fail the image build if pip replaced the CUDA TensorFlow wheel."""
 
+import glob
+import os
 import pathlib
 import subprocess
 import sys
+import sysconfig
 
 PROBE = (
     "import tensorflow as tf\n"
@@ -33,7 +36,7 @@ def restore(constraints: pathlib.Path) -> None:
         if not item:
             continue
         name = item.split("==", 1)[0].split("@", 1)[0].strip().lower()
-        if name in RESTORE:
+        if name in RESTORE or name.startswith("nvidia-"):
             specs.append(item)
     if not specs:
         raise SystemExit("No tensorflow/keras pin in %s" % constraints)
@@ -50,6 +53,28 @@ def restore(constraints: pathlib.Path) -> None:
             *specs,
         ]
     )
+
+
+def nvidia_pip_lib_dirs():
+    roots = []
+    for key in ("purelib", "platlib"):
+        path = sysconfig.get_paths().get(key)
+        if path:
+            roots.append(path)
+    try:
+        import site
+
+        roots.extend(site.getsitepackages())
+    except Exception:
+        pass
+    dirs = []
+    for root in roots:
+        if not root or not os.path.isdir(root):
+            continue
+        for lib in sorted(glob.glob(os.path.join(root, "nvidia", "*", "lib"))):
+            if os.path.isdir(lib) and lib not in dirs:
+                dirs.append(lib)
+    return dirs
 
 
 pre = pathlib.Path("/tmp/tf_pre.txt").read_text(encoding="utf-8").strip()
@@ -74,5 +99,21 @@ if not cuda:
         "TensorFlow lost CUDA support (now %s, base %s). "
         "IsoNet refine will report 'No GPU detected'."
         % (ver, pre_ver)
+    )
+
+# Ensure pip nvidia-* CUDA libs remain present (TF dlopens them at runtime).
+nv_dirs = nvidia_pip_lib_dirs()
+print("TF_NVIDIA_PIP_LIBS %s" % (" ".join(nv_dirs) or "(none)"), flush=True)
+if not nv_dirs:
+    restore(pathlib.Path("/tmp/tf-constraints.txt"))
+    nv_dirs = nvidia_pip_lib_dirs()
+    print(
+        "TF_NVIDIA_PIP_LIBS_RESTORED %s" % (" ".join(nv_dirs) or "(none)"),
+        flush=True,
+    )
+if not nv_dirs:
+    raise SystemExit(
+        "No site-packages/nvidia/*/lib after install. "
+        "TensorFlow will report 'Could not find cuda drivers' at runtime."
     )
 print("TF_OK version=%s built_with_cuda=%s" % (ver, cuda), flush=True)

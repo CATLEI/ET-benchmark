@@ -16,6 +16,7 @@ automation and run a single user-supplied command (legacy adapter behavior).
 
 from __future__ import annotations
 
+import glob
 import os
 import shutil
 import subprocess
@@ -80,7 +81,9 @@ _CUDA_LIB_CANDIDATES = (
     "/usr/local/nvidia/lib64",
     "/usr/local/nvidia/lib",
     "/usr/local/cuda/lib64",
+    "/usr/local/cuda/compat",
     "/usr/lib/x86_64-linux-gnu",
+    "/usr/lib64",
 )
 
 _TF_GPU_PROBE = """
@@ -88,14 +91,28 @@ import glob
 import os
 import shutil
 import subprocess
+import sysconfig
 print("CUDA_VISIBLE_DEVICES=%s" % os.environ.get("CUDA_VISIBLE_DEVICES"))
 print("LD_LIBRARY_PATH=%s" % os.environ.get("LD_LIBRARY_PATH"))
 print("NVIDIA_VISIBLE_DEVICES=%s" % os.environ.get("NVIDIA_VISIBLE_DEVICES"))
 print("NVIDIA_DRIVER_CAPABILITIES=%s" % os.environ.get("NVIDIA_DRIVER_CAPABILITIES"))
-libcuda = glob.glob("/usr/lib*/libcuda.so*") + glob.glob(
-    "/usr/local/nvidia/lib*/libcuda.so*"
+patterns = (
+    "/usr/lib/x86_64-linux-gnu/libcuda.so*",
+    "/usr/lib64/libcuda.so*",
+    "/usr/lib/libcuda.so*",
+    "/usr/local/nvidia/lib*/libcuda.so*",
+    "/usr/local/cuda/compat/libcuda.so*",
+    "/lib/x86_64-linux-gnu/libcuda.so*",
 )
+libcuda = []
+for pat in patterns:
+    libcuda.extend(glob.glob(pat))
 print("LIBCUDA %s" % (libcuda or "missing"))
+nv_pip = []
+for key in ("purelib", "platlib"):
+    root = sysconfig.get_paths().get(key) or ""
+    nv_pip.extend(sorted(glob.glob(os.path.join(root, "nvidia", "*", "lib"))))
+print("NVIDIA_PIP_LIBS %s" % (nv_pip or "missing"))
 smi = shutil.which("nvidia-smi")
 print("NVIDIA_SMI_BIN %s" % (smi or "missing"))
 if smi:
@@ -141,8 +158,34 @@ def _probe_tensorflow_gpu(env: Dict[str, str]) -> str:
     return report
 
 
+def _nvidia_pip_lib_dirs() -> List[str]:
+    import sysconfig
+
+    roots: List[str] = []
+    for key in ("purelib", "platlib"):
+        path = sysconfig.get_paths().get(key)
+        if path:
+            roots.append(path)
+    try:
+        import site
+
+        roots.extend(site.getsitepackages())
+    except Exception:
+        pass
+    dirs: List[str] = []
+    for root in roots:
+        if not root or not os.path.isdir(root):
+            continue
+        pattern = os.path.join(root, "nvidia", "*", "lib")
+        for lib in sorted(glob.glob(pattern)):
+            if os.path.isdir(lib) and lib not in dirs:
+                dirs.append(lib)
+    return dirs
+
+
 def _with_cuda_lib_path(env: Dict[str, str]) -> Dict[str, str]:
     extra = [path for path in _CUDA_LIB_CANDIDATES if os.path.isdir(path)]
+    extra.extend(_nvidia_pip_lib_dirs())
     if not extra:
         return env
     out = dict(env)
@@ -186,11 +229,11 @@ def _ensure_tensorflow_sees_gpu(env: Dict[str, str], gpu_id: str) -> Dict[str, s
         ready = repaired
     raise RuntimeError(
         "TensorFlow does not see a GPU (IsoNet refine would raise "
-        "'No GPU detected'). If TF_BUILT_WITH_CUDA is True but LIBCUDA is "
-        "missing, rebuild from docker/algorithms/isonet/Dockerfile.bohr "
-        "(NVIDIA_VISIBLE_DEVICES + DRIVER_CAPABILITIES) and resubmit on a "
-        "GPU scass. If TF_BUILT_WITH_CUDA is False, the CUDA TF wheel was "
-        "replaced by a CPU wheel.\n%s" % report
+        "'No GPU detected'). Rebuild from docker/algorithms/isonet/"
+        "Dockerfile.bohr (nvidia_ld_path.sh prepends site-packages/nvidia/"
+        "*/lib + driver paths). If NVIDIA_PIP_LIBS is missing, pip dropped "
+        "nvidia-* CUDA libs. If TF_BUILT_WITH_CUDA is False, the CUDA TF "
+        "wheel was replaced by a CPU wheel.\n%s" % report
     )
 
 

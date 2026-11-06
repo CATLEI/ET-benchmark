@@ -49,7 +49,7 @@ algorithms:
     docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/sirt:20261019"
     parameters:
       backend: "cpu_sirt"
-      iterations: 30
+      iterations: 50
       relaxation_factor: 0.5
       update_method: "landweber"
       dtype: "float32"
@@ -97,7 +97,7 @@ algorithms:
       allow_placeholder: false
       astra_algorithm: "SIRT3D_CUDA"
       astra_algorithm_fallbacks: []
-      astra_niter: 30
+      astra_niter: 50
       astra_vol_shape: [513, 513, 512]
       tilt_range: [-70, 70]
       output_to_gt:
@@ -120,7 +120,7 @@ algorithms:
       use_native: true
       allow_placeholder: false
       tigre_algorithm: "sirt"
-      tigre_niter: 30
+      tigre_niter: 50
       nVoxel: [512, 513, 513]
       tilt_range: [-70, 70]
     resources:
@@ -139,7 +139,7 @@ algorithms:
     parameters:
       use_native: true
       allow_placeholder: false
-      genfire_num_iterations: 5
+      genfire_num_iterations: 50
       genfire_oversampling_ratio: 1
       genfire_gridding_method: "FFT"
       tilt_range: [-70, 70]
@@ -160,7 +160,7 @@ algorithms:
       use_native: true
       allow_placeholder: false
       ddw_pipeline: true
-      ddw_num_epochs: 5
+      ddw_num_epochs: 50
       tilt_range: [-70, 70]
     resources:
       cpu: 8
@@ -175,7 +175,7 @@ algorithms:
   # Rebuild after NVIDIA_* ENV + entrypoint LD_LIBRARY_PATH fix (TF saw 0 GPUs on L20).
   isonet:
     enabled: true
-    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/isonet:20261104"
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/isonet:20261106"
     parameters:
       use_native: true
       allow_placeholder: false

@@ -123,9 +123,25 @@ if is_cpu(ver, cuda):
 print("TORCH_OK version=%s cuda=%s" % (ver, cuda), flush=True)
 PY
 
-# wucon_src/cryo_geometry.py imports odl.
-RUN pip install --no-cache-dir --timeout 300 "odl>=1.0.0" \
-    && python -c "import odl; print('ODL_OK', odl.__version__)"
+# Upstream wucon src imports. Python 3.10 → odl==0.8.3.
+RUN pip install --no-cache-dir --timeout 300 \
+    "odl==0.8.3" \
+    "scikit-image>=0.19" \
+    "matplotlib>=3.5" \
+    "tqdm>=4.60" \
+    "tensorboard>=2.5" \
+    "Pillow>=9.0" \
+    "mrcfile>=1.3" \
+    "h5py>=3.0" && \
+    python - <<'PY'
+import importlib
+for name in (
+    "odl", "odl.contrib.torch", "skimage", "matplotlib", "tqdm",
+    "tensorboard", "PIL", "mrcfile", "h5py", "scipy", "torch", "torchvision",
+):
+    importlib.import_module(name)
+    print("WUCON_DEP_OK", name)
+PY
 
 COPY docker/algorithms/wucon/run_algorithm.py /app/run_algorithm.py
 COPY docker/algorithms/wucon/docker-entrypoint.sh /app/docker-entrypoint.sh

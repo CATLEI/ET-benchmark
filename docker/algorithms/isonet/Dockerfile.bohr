@@ -42,12 +42,14 @@ RUN git clone "${ET_DFLOW_REPO_URL}" repo && \
     git checkout "${ET_DFLOW_REPO_REF}" && \
     git rev-parse HEAD && \
     test -f docker/algorithms/isonet/tf_pre.py && \
-    test -f docker/algorithms/isonet/tf_post.py
+    test -f docker/algorithms/isonet/tf_post.py && \
+    test -f docker/algorithms/isonet/nvidia_ld_path.sh
 
 WORKDIR /tmp/etdflow-build/repo
 
 RUN cp docker/algorithms/isonet/tf_pre.py /tmp/etdflow-scripts/tf_pre.py && \
     cp docker/algorithms/isonet/tf_post.py /tmp/etdflow-scripts/tf_post.py && \
+    cp docker/algorithms/isonet/nvidia_ld_path.sh /tmp/etdflow-scripts/nvidia_ld_path.sh && \
     python /tmp/etdflow-scripts/tf_pre.py
 
 RUN python -m pip install --no-cache-dir --timeout 300 \
@@ -59,8 +61,10 @@ RUN python -m pip install --no-cache-dir --timeout 300 \
     -i https://pypi.tuna.tsinghua.edu.cn/simple --no-deps . && \
     python /tmp/etdflow-scripts/tf_post.py
 
+# Keep entrypoint helper next to run_algorithm (and under /tmp for sourced path).
 RUN cp docker/algorithms/isonet/run_algorithm.py /app/run_algorithm.py && \
     cp docker/algorithms/isonet/docker-entrypoint.sh /app/docker-entrypoint.sh && \
+    cp docker/algorithms/isonet/nvidia_ld_path.sh /app/nvidia_ld_path.sh && \
     chmod +x /app/docker-entrypoint.sh
 
 WORKDIR /app
