@@ -135,7 +135,7 @@ algorithms:
   # native_genfire int-ratio fix lands on main.
   genfire:
     enabled: true
-    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/genfire:20261104"
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/genfire:20261106"
     parameters:
       use_native: true
       allow_placeholder: false
@@ -166,7 +166,9 @@ algorithms:
       cpu: 8
       memory: "64Gi"
       gpu: 1
-      scass_type: "c16_m128_1 * NVIDIA L20"
+      # OpenAPI rejected c16_m128_1 * NVIDIA L20 ("does not exist"). Use the same
+      # T4 string that astra/tigre already submit successfully on this project.
+      scass_type: "c16_m62_1 * NVIDIA T4"
 
   # In-container WBP (IsoNet input) + prepare_star/extract/refine/predict.
   # isonet_pixel_size is Å/pixel (IsoNet default recommendation ~10); override when
@@ -186,7 +188,7 @@ algorithms:
       cpu: 8
       memory: "64Gi"
       gpu: 1
-      scass_type: "c16_m128_1 * NVIDIA L20"
+      scass_type: "c16_m62_1 * NVIDIA T4"
 
   # WUCON: stage prj.mrc+.tlt, patch /opt/wucon/src, mid-chunk smoke by default.
   # Set wucon_recon_subset: false for full y-sweep. Paste Dockerfile.bohr URI first.
@@ -206,7 +208,7 @@ algorithms:
       cpu: 8
       memory: "64Gi"
       gpu: 1
-      scass_type: "c16_m128_1 * NVIDIA L20"
+      scass_type: "c16_m62_1 * NVIDIA T4"
 evaluation:
   metrics:
     - "psnr"
