@@ -77,15 +77,33 @@ def _cube_size_for_volume(shape: Tuple[int, ...], config: Dict[str, Any]) -> int
 
 
 _CUDA_LIB_CANDIDATES = (
-    "/usr/local/cuda/lib64",
     "/usr/local/nvidia/lib64",
+    "/usr/local/nvidia/lib",
+    "/usr/local/cuda/lib64",
     "/usr/lib/x86_64-linux-gnu",
 )
 
 _TF_GPU_PROBE = """
+import glob
 import os
+import shutil
+import subprocess
 print("CUDA_VISIBLE_DEVICES=%s" % os.environ.get("CUDA_VISIBLE_DEVICES"))
 print("LD_LIBRARY_PATH=%s" % os.environ.get("LD_LIBRARY_PATH"))
+print("NVIDIA_VISIBLE_DEVICES=%s" % os.environ.get("NVIDIA_VISIBLE_DEVICES"))
+print("NVIDIA_DRIVER_CAPABILITIES=%s" % os.environ.get("NVIDIA_DRIVER_CAPABILITIES"))
+libcuda = glob.glob("/usr/lib*/libcuda.so*") + glob.glob(
+    "/usr/local/nvidia/lib*/libcuda.so*"
+)
+print("LIBCUDA %s" % (libcuda or "missing"))
+smi = shutil.which("nvidia-smi")
+print("NVIDIA_SMI_BIN %s" % (smi or "missing"))
+if smi:
+    try:
+        out = subprocess.check_output([smi, "-L"], text=True, stderr=subprocess.STDOUT)
+        print("NVIDIA_SMI_L %s" % out.strip().replace("\\n", " | "))
+    except Exception as exc:
+        print("NVIDIA_SMI_ERROR %s" % exc)
 try:
     import tensorflow as tf
 except Exception as exc:
@@ -167,10 +185,12 @@ def _ensure_tensorflow_sees_gpu(env: Dict[str, str], gpu_id: str) -> Dict[str, s
             return repaired
         ready = repaired
     raise RuntimeError(
-        "TensorFlow does not see a GPU, so IsoNet refine will raise "
-        "'No GPU detected' after nvidia-smi succeeds. Rebuild the IsoNet "
-        "image from docker/algorithms/isonet/Dockerfile.bohr (it pins the "
-        "CUDA TensorFlow wheel).\n%s" % report
+        "TensorFlow does not see a GPU (IsoNet refine would raise "
+        "'No GPU detected'). If TF_BUILT_WITH_CUDA is True but LIBCUDA is "
+        "missing, rebuild from docker/algorithms/isonet/Dockerfile.bohr "
+        "(NVIDIA_VISIBLE_DEVICES + DRIVER_CAPABILITIES) and resubmit on a "
+        "GPU scass. If TF_BUILT_WITH_CUDA is False, the CUDA TF wheel was "
+        "replaced by a CPU wheel.\n%s" % report
     )
 
 

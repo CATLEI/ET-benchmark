@@ -17,6 +17,12 @@
 
 FROM registry.dp.tech/davinci/isonet:20260113153511
 
+# Bohrium/nvidia-container-runtime: mount host libcuda + compute libs into the pod.
+# Without these, TF reports built_with_cuda=True but TF_GPU_COUNT=0
+# ("Could not find cuda drivers") even when the job is scheduled on L20/T4.
+ENV NVIDIA_VISIBLE_DEVICES=all
+ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
+
 USER root
 RUN mkdir -p /app /tmp/etdflow-scripts
 WORKDIR /tmp/etdflow-build

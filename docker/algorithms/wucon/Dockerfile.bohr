@@ -18,6 +18,10 @@
 
 FROM registry.dp.tech/davinci/wucon:20260113160259
 
+# Bohrium GPU mount: host libcuda + compute libs (same as IsoNet).
+ENV NVIDIA_VISIBLE_DEVICES=all
+ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
+
 USER root
 RUN mkdir -p /app /tmp/etdflow-scripts
 WORKDIR /tmp/etdflow-build
@@ -59,6 +63,12 @@ RUN python -m pip install --no-cache-dir --timeout 300 \
 
 RUN TORCH_INDEX_URL="${TORCH_INDEX_URL}" TORCH_VERSION="${TORCH_VERSION}" \
     python /tmp/etdflow-scripts/torch_post.py
+
+# wucon_src/cryo_geometry.py: import odl (not shipped in the davinci base layer).
+RUN python -m pip install --no-cache-dir --timeout 300 \
+    -i https://pypi.tuna.tsinghua.edu.cn/simple \
+    "odl>=1.0.0" && \
+    python -c "import odl; print('ODL_OK', odl.__version__)"
 
 RUN cp docker/algorithms/wucon/run_algorithm.py /app/run_algorithm.py && \
     cp docker/algorithms/wucon/docker-entrypoint.sh /app/docker-entrypoint.sh && \

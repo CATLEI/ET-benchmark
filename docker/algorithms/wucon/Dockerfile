@@ -123,6 +123,10 @@ if is_cpu(ver, cuda):
 print("TORCH_OK version=%s cuda=%s" % (ver, cuda), flush=True)
 PY
 
+# wucon_src/cryo_geometry.py imports odl.
+RUN pip install --no-cache-dir --timeout 300 "odl>=1.0.0" \
+    && python -c "import odl; print('ODL_OK', odl.__version__)"
+
 COPY docker/algorithms/wucon/run_algorithm.py /app/run_algorithm.py
 COPY docker/algorithms/wucon/docker-entrypoint.sh /app/docker-entrypoint.sh
 RUN chmod +x /app/docker-entrypoint.sh
