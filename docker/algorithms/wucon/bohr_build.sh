@@ -1,30 +1,27 @@
 #!/bin/bash
-# Layer et_dflow + CUDA torch + wucon runtime deps onto davinci wucon base.
-# Invoked by the short Dockerfile.bohr (avoids Bohrium long-paste / stale cache).
+# Layer et_dflow + CUDA torch + wucon deps onto davinci wucon base.
+# Called from Dockerfile.bohr after git clone (not curl raw.githubusercontent.com).
 set -euxo pipefail
 
 export NVIDIA_VISIBLE_DEVICES="${NVIDIA_VISIBLE_DEVICES:-all}"
 export NVIDIA_DRIVER_CAPABILITIES="${NVIDIA_DRIVER_CAPABILITIES:-compute,utility}"
 
-ET_DFLOW_REPO_URL="${ET_DFLOW_REPO_URL:-https://github.com/CATLEI/ET-benchmark.git}"
-ET_DFLOW_REPO_REF="${ET_DFLOW_REPO_REF:-main}"
 TORCH_INDEX_URL="${TORCH_INDEX_URL:-https://download.pytorch.org/whl/cu121}"
 TORCH_VERSION="${TORCH_VERSION:-}"
 
-mkdir -p /app /tmp/etdflow-scripts /tmp/etdflow-build
-cd /tmp/etdflow-build
-
-apt-get update
-apt-get install -y --no-install-recommends git ca-certificates curl
-rm -rf /var/lib/apt/lists/*
-
-git clone "${ET_DFLOW_REPO_URL}" repo
-cd repo
-git checkout "${ET_DFLOW_REPO_REF}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
+cd "${REPO_ROOT}"
 git rev-parse HEAD
 test -f docker/algorithms/wucon/torch_pre.py
 test -f docker/algorithms/wucon/torch_post.py
 test -f docker/algorithms/wucon/docker-entrypoint.sh
+
+mkdir -p /app /tmp/etdflow-scripts
+
+apt-get update
+apt-get install -y --no-install-recommends git ca-certificates
+rm -rf /var/lib/apt/lists/*
 
 cp docker/algorithms/wucon/torch_pre.py /tmp/etdflow-scripts/torch_pre.py
 cp docker/algorithms/wucon/torch_post.py /tmp/etdflow-scripts/torch_post.py
@@ -42,8 +39,6 @@ python -m pip install --no-cache-dir --timeout 300 \
 TORCH_INDEX_URL="${TORCH_INDEX_URL}" TORCH_VERSION="${TORCH_VERSION}" \
   python /tmp/etdflow-scripts/torch_post.py
 
-# Python 3.10 -> odl 0.8.3. torchvision must come from a CUDA torch index
-# (tuna/PyPI CPU wheel breaks or is absent after torch_post purge).
 python -m pip install --no-cache-dir --timeout 300 \
   -i https://pypi.tuna.tsinghua.edu.cn/simple \
   "odl==0.8.3" \

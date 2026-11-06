@@ -1,12 +1,11 @@
-# IsoNet for Bohr Station. Keep this file SHORT: long pastes crash the UI (white screen).
-# Build logic lives in bohr_build.sh on main (fetched during docker build).
+# IsoNet for Bohr Station. Short paste (UI white-screens on long Dockerfiles).
+# Uses git clone (raw.githubusercontent.com TLS fails on Bohrium builders).
 FROM registry.dp.tech/davinci/isonet:20260113153511
 USER root
 RUN apt-get update \
- && apt-get install -y --no-install-recommends curl ca-certificates \
+ && apt-get install -y --no-install-recommends git ca-certificates \
  && rm -rf /var/lib/apt/lists/* \
- && curl -fsSL https://raw.githubusercontent.com/CATLEI/ET-benchmark/main/docker/algorithms/isonet/bohr_build.sh -o /tmp/bohr_build.sh \
- && chmod +x /tmp/bohr_build.sh \
- && bash /tmp/bohr_build.sh
+ && git clone --depth 1 -b main https://github.com/CATLEI/ET-benchmark.git /tmp/etb \
+ && bash /tmp/etb/docker/algorithms/isonet/bohr_build.sh
 WORKDIR /app
 ENTRYPOINT ["/app/docker-entrypoint.sh"]

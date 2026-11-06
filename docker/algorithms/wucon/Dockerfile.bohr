@@ -1,12 +1,10 @@
-# WUCon for Bohr Station. Keep SHORT to avoid UI white-screen / stale layer cache.
-# Build logic: docker/algorithms/wucon/bohr_build.sh on main.
+# WUCon for Bohr Station. Short paste; git clone (not raw.githubusercontent.com).
 FROM registry.dp.tech/davinci/wucon:20260113160259
 USER root
 RUN apt-get update \
- && apt-get install -y --no-install-recommends curl ca-certificates \
+ && apt-get install -y --no-install-recommends git ca-certificates \
  && rm -rf /var/lib/apt/lists/* \
- && curl -fsSL https://raw.githubusercontent.com/CATLEI/ET-benchmark/main/docker/algorithms/wucon/bohr_build.sh -o /tmp/bohr_build.sh \
- && chmod +x /tmp/bohr_build.sh \
- && bash /tmp/bohr_build.sh
+ && git clone --depth 1 -b main https://github.com/CATLEI/ET-benchmark.git /tmp/etb \
+ && bash /tmp/etb/docker/algorithms/wucon/bohr_build.sh
 WORKDIR /app
 ENTRYPOINT ["/app/docker-entrypoint.sh"]

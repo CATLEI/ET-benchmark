@@ -1,28 +1,25 @@
 #!/bin/bash
 # Layer et_dflow + TF pin helpers onto the davinci IsoNet base.
-# Invoked by the short Dockerfile.bohr (Bohrium UI white-screens on long pastes).
+# Called from Dockerfile.bohr after: git clone ... && bash .../bohr_build.sh
+# (Bohrium cannot curl raw.githubusercontent.com — TLS eof.)
 set -euxo pipefail
 
 export NVIDIA_VISIBLE_DEVICES="${NVIDIA_VISIBLE_DEVICES:-all}"
 export NVIDIA_DRIVER_CAPABILITIES="${NVIDIA_DRIVER_CAPABILITIES:-compute,utility}"
 
-ET_DFLOW_REPO_URL="${ET_DFLOW_REPO_URL:-https://github.com/CATLEI/ET-benchmark.git}"
-ET_DFLOW_REPO_REF="${ET_DFLOW_REPO_REF:-main}"
-
-mkdir -p /app /tmp/etdflow-scripts /tmp/etdflow-build
-cd /tmp/etdflow-build
-
-apt-get update
-apt-get install -y --no-install-recommends git ca-certificates
-rm -rf /var/lib/apt/lists/*
-
-git clone "${ET_DFLOW_REPO_URL}" repo
-cd repo
-git checkout "${ET_DFLOW_REPO_REF}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
+cd "${REPO_ROOT}"
 git rev-parse HEAD
 test -f docker/algorithms/isonet/tf_pre.py
 test -f docker/algorithms/isonet/tf_post.py
 test -f docker/algorithms/isonet/nvidia_ld_path.sh
+
+mkdir -p /app /tmp/etdflow-scripts
+
+apt-get update
+apt-get install -y --no-install-recommends git ca-certificates
+rm -rf /var/lib/apt/lists/*
 
 cp docker/algorithms/isonet/tf_pre.py /tmp/etdflow-scripts/tf_pre.py
 cp docker/algorithms/isonet/tf_post.py /tmp/etdflow-scripts/tf_post.py
