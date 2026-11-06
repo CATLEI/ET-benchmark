@@ -1,73 +1,12 @@
-# WUCon thin image for Bohr Station custom-image UI.
-# Paste this whole file into 自定义镜像. Clones ET-DFLOW_REPO_REF (default main).
-# Keeps CUDA torch; installs odl 0.8.3 and other wucon_src runtime deps.
-#
-# Build args: ET_DFLOW_REPO_URL, ET_DFLOW_REPO_REF, TORCH_INDEX_URL, TORCH_VERSION
-
+# WUCon for Bohr Station. Keep SHORT to avoid UI white-screen / stale layer cache.
+# Build logic: docker/algorithms/wucon/bohr_build.sh on main.
 FROM registry.dp.tech/davinci/wucon:20260113160259
-
-ENV NVIDIA_VISIBLE_DEVICES=all
-ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
-
 USER root
-RUN mkdir -p /app /tmp/etdflow-scripts
-WORKDIR /tmp/etdflow-build
-
-ARG ET_DFLOW_REPO_URL=https://github.com/CATLEI/ET-benchmark.git
-ARG ET_DFLOW_REPO_REF=main
-ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cu121
-ARG TORCH_VERSION=
-
-RUN apt-get update && apt-get install -y --no-install-recommends git \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN test -n "${ET_DFLOW_REPO_URL}" || \
-    (echo "ET_DFLOW_REPO_URL build arg is required." >&2 && exit 1)
-
-RUN git clone "${ET_DFLOW_REPO_URL}" repo && \
-    cd repo && \
-    git checkout "${ET_DFLOW_REPO_REF}" && \
-    git rev-parse HEAD && \
-    test -f docker/algorithms/wucon/torch_pre.py && \
-    test -f docker/algorithms/wucon/torch_post.py && \
-    test -f docker/algorithms/wucon/docker-entrypoint.sh
-
-WORKDIR /tmp/etdflow-build/repo
-
-RUN cp docker/algorithms/wucon/torch_pre.py /tmp/etdflow-scripts/torch_pre.py && \
-    cp docker/algorithms/wucon/torch_post.py /tmp/etdflow-scripts/torch_post.py
-
-RUN python /tmp/etdflow-scripts/torch_pre.py
-
-RUN python -m pip install --no-cache-dir --timeout 300 \
-    --upgrade-strategy only-if-needed \
-    -c /tmp/torch-constraints.txt \
-    -i https://pypi.tuna.tsinghua.edu.cn/simple \
-    -r requirements-etdflow-algorithm.txt && \
-    python -m pip install --no-cache-dir --timeout 300 \
-    -i https://pypi.tuna.tsinghua.edu.cn/simple --no-deps .
-
-RUN TORCH_INDEX_URL="${TORCH_INDEX_URL}" TORCH_VERSION="${TORCH_VERSION}" \
-    python /tmp/etdflow-scripts/torch_post.py
-
-# Python 3.10: odl 0.8.3 (1.x needs 3.11+). No heredoc (Bohrium UI rejects it).
-RUN python -m pip install --no-cache-dir --timeout 300 \
-    -i https://pypi.tuna.tsinghua.edu.cn/simple \
-    "odl==0.8.3" \
-    "scikit-image>=0.19" \
-    "matplotlib>=3.5" \
-    "tqdm>=4.60" \
-    "tensorboard>=2.5" \
-    "Pillow>=9.0" \
-    "mrcfile>=1.3" \
-    "h5py>=3.0" && \
-    python -c "import importlib; mods='odl odl.contrib.torch skimage matplotlib tqdm tensorboard PIL mrcfile h5py scipy torch torchvision'.split(); \
-[(importlib.import_module(n), print('WUCON_DEP_OK', n)) for n in mods]"
-
-RUN cp docker/algorithms/wucon/run_algorithm.py /app/run_algorithm.py && \
-    cp docker/algorithms/wucon/docker-entrypoint.sh /app/docker-entrypoint.sh && \
-    chmod +x /app/docker-entrypoint.sh
-
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends curl ca-certificates \
+ && rm -rf /var/lib/apt/lists/* \
+ && curl -fsSL https://raw.githubusercontent.com/CATLEI/ET-benchmark/main/docker/algorithms/wucon/bohr_build.sh -o /tmp/bohr_build.sh \
+ && chmod +x /tmp/bohr_build.sh \
+ && bash /tmp/bohr_build.sh
 WORKDIR /app
-
 ENTRYPOINT ["/app/docker-entrypoint.sh"]

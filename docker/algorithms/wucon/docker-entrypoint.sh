@@ -1,6 +1,8 @@
 #!/bin/sh
 # ET-dflow entrypoint for WUCon layered image
 set -e
+export NVIDIA_VISIBLE_DEVICES="${NVIDIA_VISIBLE_DEVICES:-all}"
+export NVIDIA_DRIVER_CAPABILITIES="${NVIDIA_DRIVER_CAPABILITIES:-compute,utility}"
 # Empty CUDA_VISIBLE_DEVICES (set-but-blank) can hide all GPUs from CUDA apps.
 if [ -n "${CUDA_VISIBLE_DEVICES+x}" ] && [ -z "${CUDA_VISIBLE_DEVICES}" ]; then
     unset CUDA_VISIBLE_DEVICES
