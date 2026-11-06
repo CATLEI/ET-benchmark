@@ -187,3 +187,34 @@ if is_cpu(ver, cuda):
         % (ver, cuda, pre_ver, pre_cuda)
     )
 print("TORCH_OK version=%s cuda=%s" % (ver, cuda), flush=True)
+
+# purge_torch() removes torchvision; reinstall from the same CUDA wheel index.
+# WUCON utils.py imports torchvision; missing it fails the image dep check.
+tv_ok = (
+    subprocess.call(
+        [sys.executable, "-c", "import torchvision"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    == 0
+)
+if not tv_ok:
+    tv_errors = []
+    for index in indexes:
+        rc = _pip_install("torchvision", index)
+        if rc == 0 and subprocess.call(
+            [sys.executable, "-c", "import torchvision"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        ) == 0:
+            print("TORCHVISION_OK index=%s" % index, flush=True)
+            tv_ok = True
+            break
+        tv_errors.append("%s -> rc=%s" % (index, rc))
+    if not tv_ok:
+        raise SystemExit(
+            "torchvision missing after CUDA torch install. Tried:\n  "
+            + "\n  ".join(tv_errors)
+        )
+else:
+    print("TORCHVISION_OK already present", flush=True)

@@ -1,25 +1,11 @@
-# IsoNet thin image for Bohr Station custom-image UI (same workflow as wbp/Dockerfile.bohr).
-# Pins the base CUDA TensorFlow so pip does not replace it with a CPU wheel.
-# A CPU wheel makes nvidia-smi succeed and refine.py check_gpu raise
-# "No GPU detected" at tf.config.list_physical_devices.
+# IsoNet thin image for Bohr Station custom-image UI.
+# Paste this whole file into 自定义镜像. Clones ET-DFLOW_REPO_REF (default main).
+# Pins CUDA TensorFlow; sets NVIDIA_* so TF can see the GPU at runtime.
 #
-# How to use on Bohrium:
-#   1. Push adapter changes to main first (this Dockerfile clones that ref)
-#   2. Open 自定义镜像 / Dockerfile 构建
-#   3. Paste this entire file as the Dockerfile
-#   4. Build & push; put Image URI into yaml algorithms.isonet.docker_image
-#   5. Native path: in-container WBP → prepare_star → extract → refine → predict
-#      (set isonet_pixel_size / isonet_iterations in yaml; allow_placeholder: false)
-#
-# Optional build args (defaults match WBP):
-#   ET_DFLOW_REPO_URL  (default: https://github.com/CATLEI/ET-benchmark.git)
-#   ET_DFLOW_REPO_REF   (default: main)
+# Build args: ET_DFLOW_REPO_URL, ET_DFLOW_REPO_REF
 
 FROM registry.dp.tech/davinci/isonet:20260113153511
 
-# Bohrium/nvidia-container-runtime: mount host libcuda + compute libs into the pod.
-# Without these, TF reports built_with_cuda=True but TF_GPU_COUNT=0
-# ("Could not find cuda drivers") even when the job is scheduled on L20/T4.
 ENV NVIDIA_VISIBLE_DEVICES=all
 ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
 
@@ -36,7 +22,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends git \
 RUN test -n "${ET_DFLOW_REPO_URL}" || \
     (echo "ET_DFLOW_REPO_URL build arg is required." >&2 && exit 1)
 
-# Clone + require TF helpers (also busts a stale Bohr build cache of old main).
 RUN git clone "${ET_DFLOW_REPO_URL}" repo && \
     cd repo && \
     git checkout "${ET_DFLOW_REPO_REF}" && \
@@ -61,7 +46,6 @@ RUN python -m pip install --no-cache-dir --timeout 300 \
     -i https://pypi.tuna.tsinghua.edu.cn/simple --no-deps . && \
     python /tmp/etdflow-scripts/tf_post.py
 
-# Keep entrypoint helper next to run_algorithm (and under /tmp for sourced path).
 RUN cp docker/algorithms/isonet/run_algorithm.py /app/run_algorithm.py && \
     cp docker/algorithms/isonet/docker-entrypoint.sh /app/docker-entrypoint.sh && \
     cp docker/algorithms/isonet/nvidia_ld_path.sh /app/nvidia_ld_path.sh && \
@@ -70,4 +54,3 @@ RUN cp docker/algorithms/isonet/run_algorithm.py /app/run_algorithm.py && \
 WORKDIR /app
 
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
-CMD []

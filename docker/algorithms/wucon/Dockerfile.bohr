@@ -1,24 +1,11 @@
 # WUCon thin image for Bohr Station custom-image UI.
-# Protects CUDA torch from being replaced by PyPI CPU wheels (+cpu).
+# Paste this whole file into 自定义镜像. Clones ET-DFLOW_REPO_REF (default main).
+# Keeps CUDA torch; installs odl 0.8.3 and other wucon_src runtime deps.
 #
-# How to use on Bohrium:
-#   1. Push adapter/scripts to main first (this Dockerfile clones that ref)
-#   2. Paste this entire file into 自定义镜像 / Dockerfile 构建
-#   3. Build & push; put Image URI into yaml algorithms.wucon.docker_image
-#   4. Native path: stage etbench prj.mrc+.tlt → patch /opt/wucon/src →
-#      recon_chunk mid (+ optional full y-sweep) → mrc/out.mrc
-#      First run: wucon_recon_subset: true (smoke). Full volume: set false.
-#
-# Optional build args:
-#   ET_DFLOW_REPO_URL  default https://github.com/CATLEI/ET-benchmark.git
-#   ET_DFLOW_REPO_REF   default main
-#   TORCH_INDEX_URL     preferred CUDA wheel index (default cu121; post also
-#                       tries cu124/cu126/cu128 if the pinned version is missing)
-#   TORCH_VERSION       optional pin (default: strip +cpu/+cu from base torch)
+# Build args: ET_DFLOW_REPO_URL, ET_DFLOW_REPO_REF, TORCH_INDEX_URL, TORCH_VERSION
 
 FROM registry.dp.tech/davinci/wucon:20260113160259
 
-# Bohrium GPU mount: host libcuda + compute libs (same as IsoNet).
 ENV NVIDIA_VISIBLE_DEVICES=all
 ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
 
@@ -37,7 +24,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends git \
 RUN test -n "${ET_DFLOW_REPO_URL}" || \
     (echo "ET_DFLOW_REPO_URL build arg is required." >&2 && exit 1)
 
-# Clone + require torch helpers (also busts stale Bohr build cache of old main).
 RUN git clone "${ET_DFLOW_REPO_URL}" repo && \
     cd repo && \
     git checkout "${ET_DFLOW_REPO_REF}" && \
@@ -64,9 +50,7 @@ RUN python -m pip install --no-cache-dir --timeout 300 \
 RUN TORCH_INDEX_URL="${TORCH_INDEX_URL}" TORCH_VERSION="${TORCH_VERSION}" \
     python /tmp/etdflow-scripts/torch_post.py
 
-# Upstream wucon src imports (davinci base is incomplete vs conda env.yml).
-# Python 3.10 → odl==0.8.3 (odl>=1.0 needs >=3.11).
-# No heredoc: Bohrium Dockerfile UI rejects <<'PY' (reports syntax error on CMD).
+# Python 3.10: odl 0.8.3 (1.x needs 3.11+). No heredoc (Bohrium UI rejects it).
 RUN python -m pip install --no-cache-dir --timeout 300 \
     -i https://pypi.tuna.tsinghua.edu.cn/simple \
     "odl==0.8.3" \
@@ -77,8 +61,8 @@ RUN python -m pip install --no-cache-dir --timeout 300 \
     "Pillow>=9.0" \
     "mrcfile>=1.3" \
     "h5py>=3.0" && \
-    python -c "import importlib; mods=['odl','odl.contrib.torch','skimage','matplotlib','tqdm','tensorboard','PIL','mrcfile','h5py','scipy','torch','torchvision']; \
-[print('WUCON_DEP_OK', n, importlib.import_module(n) and '') for n in mods]"
+    python -c "import importlib; mods='odl odl.contrib.torch skimage matplotlib tqdm tensorboard PIL mrcfile h5py scipy torch torchvision'.split(); \
+[(importlib.import_module(n), print('WUCON_DEP_OK', n)) for n in mods]"
 
 RUN cp docker/algorithms/wucon/run_algorithm.py /app/run_algorithm.py && \
     cp docker/algorithms/wucon/docker-entrypoint.sh /app/docker-entrypoint.sh && \
