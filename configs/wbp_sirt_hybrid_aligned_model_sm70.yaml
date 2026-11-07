@@ -129,6 +129,70 @@ algorithms:
       gpu: 1
       scass_type: "c16_m62_1 * NVIDIA T4"
 
+  # ASD-POCS on the TIGRE image. Disabled until docker/algorithms/tvm/Dockerfile.bohr
+  # has been built and the URI is pasted into docker_image.
+  tvm:
+    enabled: false
+    docker_image: ""
+    parameters:
+      use_native: true
+      allow_placeholder: false
+      tvm_niter: 50
+      tvm_tviter: 20
+      nVoxel: [512, 513, 513]
+      tilt_range: [-70, 70]
+    resources:
+      cpu: 8
+      memory: "32Gi"
+      gpu: 1
+      scass_type: "c16_m62_1 * NVIDIA T4"
+
+  # Classic DART. Leave disabled: gray levels are not guessed from the ground truth.
+  # An empty list fails closed if this entry is enabled before they are filled in.
+  dart:
+    enabled: false
+    docker_image: ""
+    parameters:
+      use_native: true
+      allow_placeholder: false
+      discrete_method: "dart"
+      dart_gray_levels: []
+      dart_algebraic: "SIRT_CUDA"
+      dart_init_iters: 50
+      dart_outer_iters: 20
+      dart_inner_iters: 5
+      dart_connectivity: 8
+      dart_random: 0.1
+      dart_seed: 0
+      dart_smooth_sigma: 1.0
+      tilt_range: [-70, 70]
+    resources:
+      cpu: 8
+      memory: "32Gi"
+      gpu: 1
+      scass_type: "c16_m62_1 * NVIDIA T4"
+
+  # TVR-DART. Leave disabled until tvr_n_gray is known. Do not set it to 2 by default.
+  tvr_dart:
+    enabled: false
+    docker_image: ""
+    parameters:
+      use_native: true
+      allow_placeholder: false
+      discrete_method: "tvr_dart"
+      tvr_lambda: 10
+      tvr_huber_epsilon: 1.0e-4
+      tvr_init_sirt_iters: 50
+      tvr_estimate_iters: 20
+      tvr_niter: 50
+      tvr_sharpness: 4
+      tilt_range: [-70, 70]
+    resources:
+      cpu: 8
+      memory: "32Gi"
+      gpu: 1
+      scass_type: "c16_m62_1 * NVIDIA T4"
+
   # CPU FFT only. GENFIRE-Python has no CUDA; use a CPU scass machine (not T4).
   # CPU FFT. Prefer integer oversampling (1/2/3): float ratios hit GENFIRE's
   # paddedDim//2 float-slice bug after reconstruct. Rebuild genfire image after
@@ -215,6 +279,10 @@ evaluation:
     - "psnr"
     - "ssim"
     - "mse"
+    - "r2"
+    - "elongation"
+    - "fsc_resolution_px"
+    - "edge_rise_px"
   # Geometry: algorithms.*.parameters.output_to_gt on the hybrid master after
   # download (and via scripts/reeval_from_run_dir.py). Keep align off to avoid
   # a second transform. Reeval without re-running algorithms:

@@ -16,6 +16,26 @@ else:
     Signal = hs.signals.Signal2D
 
 from et_dflow.core.models import AlgorithmResult, EvaluationResult
+from et_dflow.domain.evaluation.metrics.fsc import fsc_resolution_pixels
+from et_dflow.domain.evaluation.metrics.volume_scalars import (
+    edge_rise_pixels,
+    elongation_ratio,
+    pearson_r2,
+)
+
+
+def _pair_arrays(
+    result: AlgorithmResult,
+    ground_truth: Optional[Signal],
+) -> Optional[tuple]:
+    """Return (recon, gt) float arrays, or None if unavailable / mismatched."""
+    if ground_truth is None:
+        return None
+    recon_data = np.asarray(result.reconstruction.data)
+    gt_data = np.asarray(ground_truth.data)
+    if recon_data.shape != gt_data.shape:
+        return None
+    return recon_data, gt_data
 
 
 class MetricHandler(ABC):
@@ -315,6 +335,66 @@ class MSEMetricHandler(MetricHandler):
         return float(mse)
 
 
+class R2MetricHandler(MetricHandler):
+    """Voxel-wise Pearson R² between reconstruction and ground truth."""
+
+    def handle(
+        self,
+        result: AlgorithmResult,
+        ground_truth: Optional[Signal] = None,
+    ) -> Dict[str, Any]:
+        arrays = _pair_arrays(result, ground_truth)
+        if arrays is None:
+            return {}
+        value = pearson_r2(arrays[0], arrays[1])
+        return {"r2": float(value)} if value is not None else {}
+
+
+class ElongationMetricHandler(MetricHandler):
+    """Anisotropy ratio relative to ground truth."""
+
+    def handle(
+        self,
+        result: AlgorithmResult,
+        ground_truth: Optional[Signal] = None,
+    ) -> Dict[str, Any]:
+        arrays = _pair_arrays(result, ground_truth)
+        if arrays is None:
+            return {}
+        value = elongation_ratio(arrays[0], arrays[1])
+        return {"elongation": float(value)} if value is not None else {}
+
+
+class FSCResolutionPxMetricHandler(MetricHandler):
+    """FSC resolution in pixels (no assumed nm/pixel)."""
+
+    def handle(
+        self,
+        result: AlgorithmResult,
+        ground_truth: Optional[Signal] = None,
+    ) -> Dict[str, Any]:
+        arrays = _pair_arrays(result, ground_truth)
+        if arrays is None:
+            return {}
+        value = fsc_resolution_pixels(arrays[0], arrays[1])
+        return {"fsc_resolution_px": float(value)} if value is not None else {}
+
+
+class EdgeRisePxMetricHandler(MetricHandler):
+    """10%–90% edge rise distance in pixels along the steepest GT gradient."""
+
+    def handle(
+        self,
+        result: AlgorithmResult,
+        ground_truth: Optional[Signal] = None,
+    ) -> Dict[str, Any]:
+        arrays = _pair_arrays(result, ground_truth)
+        if arrays is None:
+            return {}
+        value = edge_rise_pixels(arrays[0], arrays[1])
+        return {"edge_rise_px": float(value)} if value is not None else {}
+
+
 def build_evaluation_chain(metrics: List[str]) -> Optional[MetricHandler]:
     """
     Build evaluation metric chain.
@@ -333,6 +413,10 @@ def build_evaluation_chain(metrics: List[str]) -> Optional[MetricHandler]:
         "psnr": PSNRMetricHandler,
         "ssim": SSIMMetricHandler,
         "mse": MSEMetricHandler,
+        "r2": R2MetricHandler,
+        "elongation": ElongationMetricHandler,
+        "fsc_resolution_px": FSCResolutionPxMetricHandler,
+        "edge_rise_px": EdgeRisePxMetricHandler,
     }
     
     chain = None

@@ -4,7 +4,7 @@ Fourier Shell Correlation (FSC) calculation.
 Implements FSC calculation with and without ground truth.
 """
 
-from typing import Optional, Tuple, Dict, Any
+from typing import Any, Dict, Optional, Tuple
 import numpy as np
 from scipy.ndimage import gaussian_filter
 import hyperspy.api as hs
@@ -334,4 +334,73 @@ def _find_resolution(
     resolution = 1.0 / resolution_freq if resolution_freq > 0 else float('inf')
     
     return float(resolution), int(resolution_idx)
+
+
+def fsc_resolution_pixels(
+    recon: Any,
+    gt: Any,
+    threshold: float = 0.5,
+    n_shells: int = 20,
+) -> Optional[float]:
+    """
+    FSC resolution in pixels between reconstruction and ground truth.
+
+    Frequency for a shell is ``r_pixels / max(shape)`` (cycles/pixel).
+    Resolution is the reciprocal of the first shell-center frequency where
+    FSC drops below ``threshold``. If FSC never drops below the threshold,
+    the last shell center is used.
+    """
+    recon_data = np.asarray(getattr(recon, "data", recon), dtype=np.float64)
+    gt_data = np.asarray(getattr(gt, "data", gt), dtype=np.float64)
+    if recon_data.shape != gt_data.shape or recon_data.size == 0:
+        return None
+
+    shape = recon_data.shape
+    max_dim = float(max(shape))
+    if max_dim <= 0.0:
+        return None
+
+    recon_fft = np.fft.fftshift(np.fft.fftn(recon_data))
+    gt_fft = np.fft.fftshift(np.fft.fftn(gt_data))
+
+    coords = np.meshgrid(
+        *[np.arange(s) - s // 2 for s in shape],
+        indexing="ij",
+    )
+    r_pixels = np.sqrt(sum(c.astype(np.float64) ** 2 for c in coords))
+    freq = r_pixels / max_dim
+
+    shell_edges = np.linspace(0.0, 0.5, n_shells + 1)
+    fsc_values = []
+    shell_freqs = []
+
+    for i in range(n_shells):
+        shell_min = shell_edges[i]
+        shell_max = shell_edges[i + 1]
+        mask = (freq >= shell_min) & (freq < shell_max)
+        if not np.any(mask):
+            continue
+        f1 = recon_fft[mask]
+        f2 = gt_fft[mask]
+        denom1 = np.sqrt(np.sum(np.abs(f1) ** 2))
+        denom2 = np.sqrt(np.sum(np.abs(f2) ** 2))
+        if denom1 <= 0.0 or denom2 <= 0.0:
+            continue
+        fsc = float(np.real(np.sum(f1 * np.conj(f2))) / (denom1 * denom2))
+        center = 0.5 * (shell_min + shell_max)
+        fsc_values.append(fsc)
+        shell_freqs.append(center)
+
+    if not shell_freqs:
+        return None
+
+    resolution_freq = shell_freqs[-1]
+    for fsc, center in zip(fsc_values, shell_freqs):
+        if fsc < threshold:
+            resolution_freq = center
+            break
+
+    if resolution_freq <= 0.0:
+        return None
+    return float(1.0 / resolution_freq)
 

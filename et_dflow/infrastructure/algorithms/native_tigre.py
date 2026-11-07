@@ -38,14 +38,13 @@ def tigre_n_detector_from_proj_hw(det_h: int, det_w: int) -> np.ndarray:
     return np.array([int(det_h), int(det_w)], dtype=np.int32)
 
 
-def run_tigre_reconstruction(
-    tilt_series: hs.signals.Signal2D,
-    config: Dict[str, Any],
-    *,
-    start_time: float,
-) -> AlgorithmResult:
+def prepare_tigre_parallel(tilt_series: hs.signals.Signal2D, config: Dict[str, Any]):
+    """Build the parallel-beam inputs shared by SIRT/FDK and ASD-POCS.
+
+    Returns ``(proj, geo, angles_rad, gpuids, n_voxel)``. ``proj`` is
+    ``(n_angles, H, W)`` and ``geo.nDetector`` is ``[H, W]``.
+    """
     import tigre
-    import tigre.algorithms as algs
 
     proj = np.asarray(tilt_series.data, dtype=np.float32)
     if proj.ndim != 3:
@@ -93,6 +92,19 @@ def run_tigre_reconstruction(
     except Exception as exc:  # pragma: no cover
         print(f"WARNING: TIGRE GPU init fallback: {exc}", file=sys.stderr)
         gpuids = gpu_id
+
+    return proj, geo, angles, gpuids, n_voxel
+
+
+def run_tigre_reconstruction(
+    tilt_series: hs.signals.Signal2D,
+    config: Dict[str, Any],
+    *,
+    start_time: float,
+) -> AlgorithmResult:
+    import tigre.algorithms as algs
+
+    proj, geo, angles, gpuids, n_voxel = prepare_tigre_parallel(tilt_series, config)
 
     method = (config.get("tigre_algorithm") or "fdk").lower().strip()
     if method == "fdk":

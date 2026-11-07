@@ -127,3 +127,63 @@ algorithms:
       memory: "8Gi"
       gpu: 1  # Passed to the pod as nvidia.com/gpu
 
+  tvm:
+    name: "TVM (ASD-POCS)"
+    enabled: false
+    docker_image: ""
+    category: "iterative"
+    description: "TIGRE ASD-POCS constrained total variation. Not ossart_tv."
+    parameters:
+      use_native: true
+      allow_placeholder: false
+      tvm_niter: 50
+      tvm_tviter: 20
+    resources:
+      cpu: 4
+      memory: "8Gi"
+      gpu: 1
+
+  dart:
+    name: "DART"
+    enabled: false
+    docker_image: ""
+    category: "discrete"
+    description: "Slice-wise classic DART. Requires known dart_gray_levels."
+    parameters:
+      use_native: true
+      allow_placeholder: false
+      discrete_method: "dart"
+      dart_algebraic: "SIRT_CUDA"
+      dart_init_iters: 50
+      dart_outer_iters: 20
+      dart_inner_iters: 5
+      dart_connectivity: 8
+      dart_random: 0.1
+      dart_seed: 0
+      dart_smooth_sigma: 1.0
+    resources:
+      cpu: 4
+      memory: "8Gi"
+      gpu: 1
+
+  tvr_dart:
+    name: "TVR-DART"
+    enabled: false
+    docker_image: ""
+    category: "discrete"
+    description: "Soft-segmentation DART. Requires tvr_n_gray, not gray intensities."
+    parameters:
+      use_native: true
+      allow_placeholder: false
+      discrete_method: "tvr_dart"
+      tvr_lambda: 10
+      tvr_huber_epsilon: 1.0e-4
+      tvr_init_sirt_iters: 50
+      tvr_estimate_iters: 20
+      tvr_niter: 50
+      tvr_sharpness: 4
+    resources:
+      cpu: 4
+      memory: "8Gi"
+      gpu: 1
+
