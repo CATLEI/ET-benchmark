@@ -39,6 +39,7 @@ python -m pip install --no-cache-dir --timeout 300 \
 TORCH_INDEX_URL="${TORCH_INDEX_URL}" TORCH_VERSION="${TORCH_VERSION}" \
   python /tmp/etdflow-scripts/torch_post.py
 
+# Upstream env.yml pip deps + odl (proc_freq imports bm3d at module load).
 python -m pip install --no-cache-dir --timeout 300 \
   -i https://pypi.tuna.tsinghua.edu.cn/simple \
   "odl==0.8.3" \
@@ -48,7 +49,12 @@ python -m pip install --no-cache-dir --timeout 300 \
   "tensorboard>=2.5" \
   "Pillow>=9.0" \
   "mrcfile>=1.3" \
-  "h5py>=3.0"
+  "h5py>=3.0" \
+  "bm3d>=3.0.0" \
+  "PyWavelets>=1.3" \
+  "imageio>=2.20" \
+  "tifffile>=2021.11.2" \
+  "networkx>=2.6"
 
 tv_ok=0
 for idx in \
@@ -70,7 +76,7 @@ if [ "${tv_ok}" != "1" ]; then
   exit 1
 fi
 
-python -c "import importlib; mods='odl odl.contrib.torch skimage matplotlib tqdm tensorboard PIL mrcfile h5py scipy torch torchvision'.split(); \
+python -c "import importlib; mods='odl odl.contrib.torch skimage matplotlib tqdm tensorboard PIL mrcfile h5py scipy torch torchvision bm3d pywt imageio tifffile networkx'.split(); \
 [(importlib.import_module(n), print('WUCON_DEP_OK', n)) for n in mods]"
 
 cp docker/algorithms/wucon/run_algorithm.py /app/run_algorithm.py
