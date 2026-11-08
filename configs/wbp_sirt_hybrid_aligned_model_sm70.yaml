@@ -45,7 +45,7 @@ algorithms:
       scass_type: "c8_m32_cpu"
 
   sirt:
-    enabled: true
+    enabled: false
     docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/sirt:20261019"
     parameters:
       backend: "cpu_sirt"
@@ -72,10 +72,11 @@ algorithms:
       astra_algorithm: "FBP_CUDA"
       filter_type: "ram-lak"
       tilt_range: [-70, 70]
-      # Identity axes for now (do not copy WBP ImageJ recipe). Calibrate later.
+      # Same GT frame as WBP, plus flip of native axis 1 (→ flip_axes [0,2]
+      # after axes_order [1,2,0]). Calibrated on job 20261106-151902.
       output_to_gt:
-        axes_order: [0, 1, 2]
-        flip_axes: []
+        axes_order: [1, 2, 0]
+        flip_axes: [0, 2]
         trim: leading
         target_shape: [512, 512, 512]
     resources:
@@ -100,9 +101,10 @@ algorithms:
       astra_niter: 50
       astra_vol_shape: [513, 513, 512]
       tilt_range: [-70, 70]
+      # Same native→GT recipe as astra_fbp.
       output_to_gt:
-        axes_order: [0, 1, 2]
-        flip_axes: []
+        axes_order: [1, 2, 0]
+        flip_axes: [0, 2]
         trim: leading
         target_shape: [512, 512, 512]
     resources:
@@ -123,6 +125,12 @@ algorithms:
       tigre_niter: 50
       nVoxel: [512, 513, 513]
       tilt_range: [-70, 70]
+      # Swap native axes 1↔2 relative to WBP, then WBP flip on axis 2.
+      output_to_gt:
+        axes_order: [2, 1, 0]
+        flip_axes: [2]
+        trim: leading
+        target_shape: [512, 512, 512]
     resources:
       cpu: 8
       memory: "32Gi"
@@ -132,8 +140,8 @@ algorithms:
   # ASD-POCS on the TIGRE image. Disabled until docker/algorithms/tvm/Dockerfile.bohr
   # has been built and the URI is pasted into docker_image.
   tvm:
-    enabled: false
-    docker_image: ""
+    enabled: true
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/tvm:20261107"
     parameters:
       use_native: true
       allow_placeholder: false
@@ -150,8 +158,8 @@ algorithms:
   # Classic DART. Leave disabled: gray levels are not guessed from the ground truth.
   # An empty list fails closed if this entry is enabled before they are filled in.
   dart:
-    enabled: false
-    docker_image: ""
+    enabled: true
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/discrete:20261107"
     parameters:
       use_native: true
       allow_placeholder: false
@@ -174,8 +182,8 @@ algorithms:
 
   # TVR-DART. Leave disabled until tvr_n_gray is known. Do not set it to 2 by default.
   tvr_dart:
-    enabled: false
-    docker_image: ""
+    enabled: true
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/discrete:20261107"
     parameters:
       use_native: true
       allow_placeholder: false
@@ -203,7 +211,7 @@ algorithms:
     parameters:
       use_native: true
       allow_placeholder: false
-      genfire_num_iterations: 50
+      genfire_num_iterations: 100
       genfire_oversampling_ratio: 1
       genfire_gridding_method: "FFT"
       tilt_range: [-70, 70]
@@ -224,8 +232,14 @@ algorithms:
       use_native: true
       allow_placeholder: false
       ddw_pipeline: true
-      ddw_num_epochs: 50
+      ddw_num_epochs: 300
       tilt_range: [-70, 70]
+      # Same native→GT recipe as astra_fbp / astra_sirt.
+      output_to_gt:
+        axes_order: [1, 2, 0]
+        flip_axes: [0, 2]
+        trim: leading
+        target_shape: [512, 512, 512]
     resources:
       cpu: 8
       memory: "64Gi"
@@ -238,8 +252,8 @@ algorithms:
   # the sm70 dataset documents a real value. Paste Dockerfile.bohr URI before enable.
   # Rebuild after NVIDIA_* ENV + entrypoint LD_LIBRARY_PATH fix (TF saw 0 GPUs on L20).
   isonet:
-    enabled: true
-    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/isonet:20261106"
+    enabled: false
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/isonet:20261108"
     parameters:
       use_native: true
       allow_placeholder: false
@@ -259,7 +273,7 @@ algorithms:
   # Rebuild after odl pip install (cryo_geometry ModuleNotFoundError: odl).
   wucon:
     enabled: true
-    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/wucon:20261106"
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/wucon:20261107"
     parameters:
       use_native: true
       allow_placeholder: false
@@ -283,6 +297,15 @@ evaluation:
     - "elongation"
     - "fsc_resolution_px"
     - "edge_rise_px"
+    # Hyper-Tomo / porous morphology (solid-void overlap and surface).
+    - "dice"
+    - "hausdorff95_px"
+    - "porosity_abs_error"
+    # Porous nanomaterials: pore-size distribution, surface area, connectivity.
+    - "psd_wasserstein_px"
+    - "ssa_rel_error"
+    - "void_cc_fraction_abs_error"
+    - "percolation_mismatch"
   # Geometry: algorithms.*.parameters.output_to_gt on the hybrid master after
   # download (and via scripts/reeval_from_run_dir.py). Keep align off to avoid
   # a second transform. Reeval without re-running algorithms:

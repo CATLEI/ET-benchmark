@@ -23,3 +23,10 @@ build/
 # Local figure / PPT outputs
 out/
 
+# Benchmark run artifacts (local / Bohrium downloads)
+results/
+
+# Editor / OS noise
+.DS_Store
+.mplconfig/
+

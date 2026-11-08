@@ -18,9 +18,16 @@ else:
 from et_dflow.core.models import AlgorithmResult, EvaluationResult
 from et_dflow.domain.evaluation.metrics.fsc import fsc_resolution_pixels
 from et_dflow.domain.evaluation.metrics.volume_scalars import (
+    dice_coefficient,
     edge_rise_pixels,
     elongation_ratio,
+    hausdorff95_px,
     pearson_r2,
+    percolation_mismatch,
+    porosity_abs_error,
+    psd_wasserstein_px,
+    ssa_rel_error,
+    void_cc_fraction_abs_error,
 )
 
 
@@ -395,6 +402,111 @@ class EdgeRisePxMetricHandler(MetricHandler):
         return {"edge_rise_px": float(value)} if value is not None else {}
 
 
+class DiceMetricHandler(MetricHandler):
+    """Dice overlap of solid phases (Hyper-Tomo / porous morphology)."""
+
+    def handle(
+        self,
+        result: AlgorithmResult,
+        ground_truth: Optional[Signal] = None,
+    ) -> Dict[str, Any]:
+        arrays = _pair_arrays(result, ground_truth)
+        if arrays is None:
+            return {}
+        value = dice_coefficient(arrays[0], arrays[1])
+        return {"dice": float(value)} if value is not None else {}
+
+
+class Hausdorff95PxMetricHandler(MetricHandler):
+    """95th-percentile solid-surface Hausdorff distance in voxels."""
+
+    def handle(
+        self,
+        result: AlgorithmResult,
+        ground_truth: Optional[Signal] = None,
+    ) -> Dict[str, Any]:
+        arrays = _pair_arrays(result, ground_truth)
+        if arrays is None:
+            return {}
+        value = hausdorff95_px(arrays[0], arrays[1])
+        return {"hausdorff95_px": float(value)} if value is not None else {}
+
+
+class PorosityAbsErrorMetricHandler(MetricHandler):
+    """Absolute void-fraction error vs ground truth."""
+
+    def handle(
+        self,
+        result: AlgorithmResult,
+        ground_truth: Optional[Signal] = None,
+    ) -> Dict[str, Any]:
+        arrays = _pair_arrays(result, ground_truth)
+        if arrays is None:
+            return {}
+        value = porosity_abs_error(arrays[0], arrays[1])
+        return {"porosity_abs_error": float(value)} if value is not None else {}
+
+
+class PsdWassersteinPxMetricHandler(MetricHandler):
+    """Wasserstein-1 distance between void clearance-radius histograms."""
+
+    def handle(
+        self,
+        result: AlgorithmResult,
+        ground_truth: Optional[Signal] = None,
+    ) -> Dict[str, Any]:
+        arrays = _pair_arrays(result, ground_truth)
+        if arrays is None:
+            return {}
+        value = psd_wasserstein_px(arrays[0], arrays[1])
+        return {"psd_wasserstein_px": float(value)} if value is not None else {}
+
+
+class SsaRelErrorMetricHandler(MetricHandler):
+    """Relative specific-surface-area error of the solid phase."""
+
+    def handle(
+        self,
+        result: AlgorithmResult,
+        ground_truth: Optional[Signal] = None,
+    ) -> Dict[str, Any]:
+        arrays = _pair_arrays(result, ground_truth)
+        if arrays is None:
+            return {}
+        value = ssa_rel_error(arrays[0], arrays[1])
+        return {"ssa_rel_error": float(value)} if value is not None else {}
+
+
+class VoidCcFractionAbsErrorMetricHandler(MetricHandler):
+    """Absolute error of largest-void connected-component fraction."""
+
+    def handle(
+        self,
+        result: AlgorithmResult,
+        ground_truth: Optional[Signal] = None,
+    ) -> Dict[str, Any]:
+        arrays = _pair_arrays(result, ground_truth)
+        if arrays is None:
+            return {}
+        value = void_cc_fraction_abs_error(arrays[0], arrays[1])
+        return {"void_cc_fraction_abs_error": float(value)} if value is not None else {}
+
+
+class PercolationMismatchMetricHandler(MetricHandler):
+    """Fraction of axes where void percolation disagrees with GT."""
+
+    def handle(
+        self,
+        result: AlgorithmResult,
+        ground_truth: Optional[Signal] = None,
+    ) -> Dict[str, Any]:
+        arrays = _pair_arrays(result, ground_truth)
+        if arrays is None:
+            return {}
+        value = percolation_mismatch(arrays[0], arrays[1])
+        return {"percolation_mismatch": float(value)} if value is not None else {}
+
+
 def build_evaluation_chain(metrics: List[str]) -> Optional[MetricHandler]:
     """
     Build evaluation metric chain.
@@ -417,6 +529,13 @@ def build_evaluation_chain(metrics: List[str]) -> Optional[MetricHandler]:
         "elongation": ElongationMetricHandler,
         "fsc_resolution_px": FSCResolutionPxMetricHandler,
         "edge_rise_px": EdgeRisePxMetricHandler,
+        "dice": DiceMetricHandler,
+        "hausdorff95_px": Hausdorff95PxMetricHandler,
+        "porosity_abs_error": PorosityAbsErrorMetricHandler,
+        "psd_wasserstein_px": PsdWassersteinPxMetricHandler,
+        "ssa_rel_error": SsaRelErrorMetricHandler,
+        "void_cc_fraction_abs_error": VoidCcFractionAbsErrorMetricHandler,
+        "percolation_mismatch": PercolationMismatchMetricHandler,
     }
     
     chain = None

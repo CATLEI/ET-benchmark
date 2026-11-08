@@ -8,9 +8,16 @@ from et_dflow.core.models import AlgorithmResult
 from et_dflow.domain.evaluation.chain import build_evaluation_chain
 from et_dflow.domain.evaluation.metrics.fsc import fsc_resolution_pixels
 from et_dflow.domain.evaluation.metrics.volume_scalars import (
+    dice_coefficient,
     edge_rise_pixels,
     elongation_ratio,
+    hausdorff95_px,
     pearson_r2,
+    percolation_mismatch,
+    porosity_abs_error,
+    psd_wasserstein_px,
+    ssa_rel_error,
+    void_cc_fraction_abs_error,
 )
 
 
@@ -55,6 +62,14 @@ def test_elongation_identical_is_one():
     assert elongation_ratio(vol, vol) == pytest.approx(1.0, abs=1e-6)
 
 
+def test_elongation_binary_plateau_is_finite():
+    """Simulated porous GT is often 0/255; percentile-90 masks used to be empty."""
+    shape = (32, 32, 32)
+    gt = np.zeros(shape, dtype=np.float64)
+    gt[8:24, 8:24, 8:24] = 255.0
+    assert elongation_ratio(gt, gt) == pytest.approx(1.0, abs=1e-6)
+
+
 def test_elongation_z_stretched_above_one():
     shape = (64, 64, 64)
     center = (32, 32, 32)
@@ -63,6 +78,81 @@ def test_elongation_z_stretched_above_one():
     value = elongation_ratio(recon, gt)
     assert value is not None
     assert value > 1.0
+
+
+def test_dice_identical_is_one():
+    shape = (24, 24, 24)
+    gt = _ball(shape, (12, 12, 12), 6).astype(np.float64) * 255.0
+    assert dice_coefficient(gt, gt) == pytest.approx(1.0)
+
+
+def test_dice_disjoint_near_zero():
+    shape = (32, 32, 32)
+    gt = _ball(shape, (8, 8, 8), 4).astype(np.float64) * 255.0
+    recon = _ball(shape, (24, 24, 24), 4).astype(np.float64) * 255.0
+    assert dice_coefficient(recon, gt) == pytest.approx(0.0)
+
+
+def test_hausdorff95_identical_is_zero():
+    shape = (24, 24, 24)
+    gt = _ball(shape, (12, 12, 12), 5).astype(np.float64) * 255.0
+    assert hausdorff95_px(gt, gt) == pytest.approx(0.0, abs=1e-6)
+
+
+def test_porosity_abs_error_identical_is_zero():
+    shape = (20, 20, 20)
+    gt = _ball(shape, (10, 10, 10), 5).astype(np.float64) * 255.0
+    assert porosity_abs_error(gt, gt) == pytest.approx(0.0)
+
+
+def _porous_slab(shape, pore_radius):
+    """Solid fill with a spherical pore (void) in the center."""
+    vol = np.ones(shape, dtype=np.float64) * 255.0
+    center = tuple(s // 2 for s in shape)
+    vol[_ball(shape, center, pore_radius)] = 0.0
+    return vol
+
+
+def test_psd_wasserstein_identical_is_zero():
+    gt = _porous_slab((32, 32, 32), 6)
+    assert psd_wasserstein_px(gt, gt) == pytest.approx(0.0, abs=1e-9)
+
+
+def test_psd_wasserstein_larger_pore_is_positive():
+    gt = _porous_slab((40, 40, 40), 5)
+    recon = _porous_slab((40, 40, 40), 10)
+    value = psd_wasserstein_px(recon, gt)
+    assert value is not None
+    assert value > 0.0
+
+
+def test_ssa_rel_error_identical_is_zero():
+    gt = _porous_slab((28, 28, 28), 5)
+    assert ssa_rel_error(gt, gt) == pytest.approx(0.0)
+
+
+def test_void_cc_fraction_identical_is_zero():
+    gt = _porous_slab((28, 28, 28), 5)
+    assert void_cc_fraction_abs_error(gt, gt) == pytest.approx(0.0)
+
+
+def test_percolation_mismatch_identical_is_zero():
+    # Open channel along z through a solid volume.
+    shape = (24, 24, 24)
+    gt = np.ones(shape, dtype=np.float64) * 255.0
+    gt[:, 10:14, 10:14] = 0.0
+    assert percolation_mismatch(gt, gt) == pytest.approx(0.0)
+
+
+def test_percolation_mismatch_blocked_channel():
+    shape = (24, 24, 24)
+    gt = np.ones(shape, dtype=np.float64) * 255.0
+    gt[:, 10:14, 10:14] = 0.0
+    recon = gt.copy()
+    recon[12, 10:14, 10:14] = 255.0  # plug the channel
+    value = percolation_mismatch(recon, gt)
+    assert value is not None
+    assert value > 0.0
 
 
 def test_edge_rise_px_matches_constructed_width():
@@ -103,7 +193,22 @@ def test_chain_registers_new_metrics():
         algorithm_name="test",
     )
     chain = build_evaluation_chain(
-        ["psnr", "ssim", "mse", "r2", "elongation", "fsc_resolution_px", "edge_rise_px"]
+        [
+            "psnr",
+            "ssim",
+            "mse",
+            "r2",
+            "elongation",
+            "fsc_resolution_px",
+            "edge_rise_px",
+            "dice",
+            "hausdorff95_px",
+            "porosity_abs_error",
+            "psd_wasserstein_px",
+            "ssa_rel_error",
+            "void_cc_fraction_abs_error",
+            "percolation_mismatch",
+        ]
     )
     assert chain is not None
     metrics = chain.process(result, gt)
@@ -115,3 +220,10 @@ def test_chain_registers_new_metrics():
     assert metrics["fsc_resolution_px"] > 0.0
     # Identical sharp ball may not produce a 10–90 rise; key may be absent.
     assert "edge_rise_px" not in metrics or metrics["edge_rise_px"] > 0.0
+    assert metrics["dice"] == pytest.approx(1.0)
+    assert metrics["hausdorff95_px"] == pytest.approx(0.0, abs=1e-6)
+    assert metrics["porosity_abs_error"] == pytest.approx(0.0)
+    assert metrics["psd_wasserstein_px"] == pytest.approx(0.0, abs=1e-9)
+    assert metrics["ssa_rel_error"] == pytest.approx(0.0)
+    assert metrics["void_cc_fraction_abs_error"] == pytest.approx(0.0)
+    assert metrics["percolation_mismatch"] == pytest.approx(0.0)
