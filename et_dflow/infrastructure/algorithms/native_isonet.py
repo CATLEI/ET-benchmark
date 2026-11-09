@@ -87,6 +87,7 @@ _CUDA_LIB_CANDIDATES = (
 )
 
 _TF_GPU_PROBE = """
+import ctypes
 import glob
 import os
 import shutil
@@ -108,6 +109,11 @@ libcuda = []
 for pat in patterns:
     libcuda.extend(glob.glob(pat))
 print("LIBCUDA %s" % (libcuda or "missing"))
+try:
+    ctypes.CDLL("libcuda.so.1")
+    print("LIBCUDA_CDLL ok")
+except Exception as exc:
+    print("LIBCUDA_CDLL fail %s" % exc)
 nv_pip = []
 for key in ("purelib", "platlib"):
     root = sysconfig.get_paths().get(key) or ""
@@ -144,7 +150,10 @@ print("TF_GPUS %s" % gpus)
 
 
 def _probe_tensorflow_gpu(env: Dict[str, str]) -> str:
-    probe_env = dict(env)
+    # Start from the full process env so entrypoint LD_LIBRARY_PATH / NVIDIA_*
+    # are preserved even if callers pass a partial overlay.
+    probe_env = {str(k): str(v) for k, v in os.environ.items()}
+    probe_env.update({str(k): str(v) for k, v in env.items() if v is not None})
     probe_env["TF_CPP_MIN_LOG_LEVEL"] = "0"
     proc = subprocess.run(
         [sys.executable, "-c", _TF_GPU_PROBE],
@@ -207,33 +216,54 @@ def _tensorflow_sees_gpu(report: str) -> bool:
     return False
 
 
+def _bohrium_gpu_env(env: Dict[str, str], gpu_id: str) -> Dict[str, str]:
+    """Normalize Bohrium GPU env so TF sees the remapped device.
+
+    Bohrium often sets ``NVIDIA_VISIBLE_DEVICES`` to the *host* index (e.g. ``1``)
+    while the container already remapped that GPU to index ``0``. Keeping the
+    host index makes CUDA/TF report 0 devices even when ``nvidia-smi -L`` works.
+    """
+    ready = {str(k): str(v) for k, v in env.items() if v is not None}
+    ready["NVIDIA_DRIVER_CAPABILITIES"] = "compute,utility"
+    nvd = (ready.get("NVIDIA_VISIBLE_DEVICES") or "").strip()
+    if nvd and nvd not in ("all", "void"):
+        print(
+            "ISONET_RUN remap NVIDIA_VISIBLE_DEVICES=%s -> all" % nvd,
+            flush=True,
+        )
+        ready["NVIDIA_VISIBLE_DEVICES"] = "all"
+    else:
+        ready["NVIDIA_VISIBLE_DEVICES"] = nvd or "all"
+    cvd = (ready.get("CUDA_VISIBLE_DEVICES") or "").strip()
+    ready["CUDA_VISIBLE_DEVICES"] = cvd or str(gpu_id)
+    return _with_cuda_lib_path(ready)
+
+
 def _ensure_tensorflow_sees_gpu(env: Dict[str, str], gpu_id: str) -> Dict[str, str]:
     """IsoNet check_gpu passes nvidia-smi, then fails if TensorFlow lists no GPU.
 
     A CPU TensorFlow wheel (pip replacing the image's CUDA build) produces
-    exactly that: nvidia-smi shows a device, refine.py:228 raises.
+    exactly that: nvidia-smi shows a device, refine.py:228 raises. Bohrium host
+    GPU index in NVIDIA_VISIBLE_DEVICES is another common cause.
     """
-    ready = dict(env)
-    if not (ready.get("CUDA_VISIBLE_DEVICES") or "").strip():
-        ready["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+    ready = _bohrium_gpu_env(env, gpu_id)
     print("ISONET_RUN step=tensorflow-gpu-probe", flush=True)
     report = _probe_tensorflow_gpu(ready)
     if _tensorflow_sees_gpu(report):
         return ready
-    repaired = _with_cuda_lib_path(ready)
-    if repaired.get("LD_LIBRARY_PATH") != ready.get("LD_LIBRARY_PATH"):
-        print("ISONET_RUN step=tensorflow-gpu-probe-retry", flush=True)
-        report = _probe_tensorflow_gpu(repaired)
-        if _tensorflow_sees_gpu(report):
-            return repaired
-        ready = repaired
+    # Second try: only CUDA_VISIBLE_DEVICES (drop NVIDIA filter entirely).
+    alt = dict(ready)
+    alt["NVIDIA_VISIBLE_DEVICES"] = "all"
+    alt["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+    print("ISONET_RUN step=tensorflow-gpu-probe-retry", flush=True)
+    report = _probe_tensorflow_gpu(alt)
+    if _tensorflow_sees_gpu(report):
+        return alt
     raise RuntimeError(
         "TensorFlow does not see a GPU (IsoNet refine would raise "
-        "'No GPU detected'). Rebuild from docker/algorithms/isonet/"
-        "Dockerfile.bohr (nvidia_ld_path.sh prepends site-packages/nvidia/"
-        "*/lib + driver paths). If NVIDIA_PIP_LIBS is missing, pip dropped "
-        "nvidia-* CUDA libs. If TF_BUILT_WITH_CUDA is False, the CUDA TF "
-        "wheel was replaced by a CPU wheel.\n%s" % report
+        "'No GPU detected'). Check LIBCUDA_CDLL / NVIDIA_VISIBLE_DEVICES in "
+        "the probe (Bohrium host index must be remapped to all). Rebuild "
+        "isonet image after entrypoint + native_isonet GPU env fix.\n%s" % report
     )
 
 

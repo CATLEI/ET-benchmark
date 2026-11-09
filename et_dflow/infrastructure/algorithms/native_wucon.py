@@ -54,6 +54,48 @@ def _clear_blank_cuda_visible_devices() -> None:
         print("WUCON_RUN unset empty CUDA_VISIBLE_DEVICES", flush=True)
 
 
+def _ensure_bm3d() -> None:
+    """proc_freq imports bm3d at module load; install if a stale image omitted it."""
+    try:
+        import bm3d  # noqa: F401
+
+        return
+    except ImportError:
+        pass
+    print("WUCON_RUN step=pip-install-bm3d", flush=True)
+    indexes = (
+        ["-i", "https://pypi.tuna.tsinghua.edu.cn/simple"],
+        [],
+    )
+    last_err: Optional[BaseException] = None
+    for extra in indexes:
+        cmd = [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--no-cache-dir",
+            "--timeout",
+            "300",
+            "bm3d>=3.0.0",
+            *extra,
+        ]
+        proc = subprocess.run(cmd, check=False, capture_output=True, text=True)
+        if proc.returncode == 0:
+            import bm3d  # noqa: F401
+
+            print("WUCON_RUN bm3d installed", flush=True)
+            return
+        last_err = RuntimeError(
+            "pip install bm3d failed rc=%s\n%s\n%s"
+            % (proc.returncode, proc.stdout, proc.stderr)
+        )
+    raise RuntimeError(
+        "bm3d is required (utils->proc_freq) but missing and pip install failed: %s"
+        % last_err
+    )
+
+
 def _require_cuda_gpu() -> None:
     """Fail before recon_chunk when this process cannot see a CUDA device."""
     _clear_blank_cuda_visible_devices()
@@ -602,11 +644,20 @@ def run_wucon_reconstruction(
     # Clear a blank CUDA_VISIBLE_DEVICES before the child env is copied.
     # recon_chunk inherits ``env`` and also needs the GPU.
     _clear_blank_cuda_visible_devices()
+    # Bohrium may leave a host GPU index in NVIDIA_VISIBLE_DEVICES.
+    nvd = (os.environ.get("NVIDIA_VISIBLE_DEVICES") or "").strip()
+    if nvd and nvd not in ("all", "void"):
+        print("WUCON_RUN remap NVIDIA_VISIBLE_DEVICES=%s -> all" % nvd, flush=True)
+        os.environ["NVIDIA_VISIBLE_DEVICES"] = "all"
+    os.environ["NVIDIA_DRIVER_CAPABILITIES"] = "compute,utility"
     env = {**os.environ, **(config.get("wucon_env") or {})}
     env["PYTHONPATH"] = str(src_copy) + (
         os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else ""
     )
+    env["NVIDIA_VISIBLE_DEVICES"] = "all"
+    env["NVIDIA_DRIVER_CAPABILITIES"] = "compute,utility"
 
+    _ensure_bm3d()
     # GPU hard requirement (official recon_volume also requires CUDA).
     _require_cuda_gpu()
 

@@ -50,11 +50,17 @@ python -m pip install --no-cache-dir --timeout 300 \
   "Pillow>=9.0" \
   "mrcfile>=1.3" \
   "h5py>=3.0" \
-  "bm3d>=3.0.0" \
   "PyWavelets>=1.3" \
   "imageio>=2.20" \
   "tifffile>=2021.11.2" \
   "networkx>=2.6"
+
+# bm3d alone (hard-fail): tuna first, then PyPI. utils->proc_freq imports it.
+if ! python -m pip install --no-cache-dir --timeout 300 \
+    -i https://pypi.tuna.tsinghua.edu.cn/simple "bm3d>=3.0.0"; then
+  python -m pip install --no-cache-dir --timeout 300 "bm3d>=3.0.0"
+fi
+python -c "import bm3d; print('BM3D_OK', getattr(bm3d, '__version__', 'unknown'))"
 
 tv_ok=0
 for idx in \

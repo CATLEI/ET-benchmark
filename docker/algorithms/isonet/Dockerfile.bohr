@@ -1,5 +1,6 @@
 # IsoNet for Bohr Station. Short paste (UI white-screens on long Dockerfiles).
 # Uses git clone (raw.githubusercontent.com TLS fails on Bohrium builders).
+# CACHE_BUST: NVIDIA_VISIBLE_DEVICES remap fix 20261109.
 FROM registry.dp.tech/davinci/isonet:20260113153511
 USER root
 RUN apt-get update \

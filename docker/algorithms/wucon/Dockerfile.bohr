@@ -1,4 +1,5 @@
 # WUCon for Bohr Station. Short paste; git clone (not raw.githubusercontent.com).
+# CACHE_BUST: change this comment to force a clean rebuild (bm3d fix 20261109).
 FROM registry.dp.tech/davinci/wucon:20260113160259
 USER root
 RUN apt-get update \
