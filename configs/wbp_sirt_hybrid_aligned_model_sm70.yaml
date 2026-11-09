@@ -155,8 +155,7 @@ algorithms:
       gpu: 1
       scass_type: "c16_m62_1 * NVIDIA T4"
 
-  # Classic DART. Leave disabled: gray levels are not guessed from the ground truth.
-  # An empty list fails closed if this entry is enabled before they are filled in.
+  # Classic DART. Gray levels = unique GT intensities (sm70 volume is binary 0/255).
   dart:
     enabled: true
     docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/discrete:20261107"
@@ -164,7 +163,7 @@ algorithms:
       use_native: true
       allow_placeholder: false
       discrete_method: "dart"
-      dart_gray_levels: []
+      dart_gray_levels: [0.0, 255.0]
       dart_algebraic: "SIRT_CUDA"
       dart_init_iters: 50
       dart_outer_iters: 20
@@ -180,7 +179,7 @@ algorithms:
       gpu: 1
       scass_type: "c16_m62_1 * NVIDIA T4"
 
-  # TVR-DART. Leave disabled until tvr_n_gray is known. Do not set it to 2 by default.
+  # TVR-DART. tvr_n_gray = phase count including background (sm70 GT: 2 unique values).
   tvr_dart:
     enabled: true
     docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/discrete:20261107"
@@ -188,6 +187,7 @@ algorithms:
       use_native: true
       allow_placeholder: false
       discrete_method: "tvr_dart"
+      tvr_n_gray: 2
       tvr_lambda: 10
       tvr_huber_epsilon: 1.0e-4
       tvr_init_sirt_iters: 50
@@ -252,8 +252,8 @@ algorithms:
   # the sm70 dataset documents a real value. Paste Dockerfile.bohr URI before enable.
   # Rebuild after NVIDIA_* ENV + entrypoint LD_LIBRARY_PATH fix (TF saw 0 GPUs on L20).
   isonet:
-    enabled: false
-    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/isonet:20261108"
+    enabled: true
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/isonet:20261109"
     parameters:
       use_native: true
       allow_placeholder: false
@@ -273,7 +273,7 @@ algorithms:
   # Rebuild after odl pip install (cryo_geometry ModuleNotFoundError: odl).
   wucon:
     enabled: true
-    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/wucon:20261107"
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/wucon:20261108"
     parameters:
       use_native: true
       allow_placeholder: false

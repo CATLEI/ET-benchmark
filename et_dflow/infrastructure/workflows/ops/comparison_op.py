@@ -73,6 +73,7 @@ class ComparisonOP(OP):
 
         # Load all evaluation results from JSON files
         all_results: Dict[str, Dict[str, Any]] = {}
+        evaluation_payloads: List[Dict[str, Any]] = []
         leaderboard_rows: List[Dict[str, Any]] = []
         by_track: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
 
@@ -89,6 +90,7 @@ class ComparisonOP(OP):
             try:
                 with open(eval_file, 'r') as f:
                     eval_data = json.load(f)
+                    evaluation_payloads.append(eval_data if isinstance(eval_data, dict) else {})
                     metrics = eval_data.get("metrics", {})
                     all_results[row_label] = metrics
                     meta = eval_data.get("metadata") or {}
@@ -136,12 +138,20 @@ class ComparisonOP(OP):
         
         # Ensure output directory exists
         output_path.mkdir(parents=True, exist_ok=True)
+
+        from et_dflow.infrastructure.visualization.evaluation_visualizer import (
+            EvaluationVisualizer,
+            collect_sample_info,
+        )
+
+        sample_info = collect_sample_info(
+            evaluation_payloads,
+            algorithm_names=row_labels,
+        )
         
         # Generate visualizations
         html_report_path = output_path / "comparison_report.html"
         try:
-            from et_dflow.infrastructure.visualization.evaluation_visualizer import EvaluationVisualizer
-            
             visualizer = EvaluationVisualizer(str(output_path))
             
             # Prepare data for visualization
@@ -151,7 +161,11 @@ class ComparisonOP(OP):
             # Create visualizations
             bar_chart = visualizer.visualize_metrics(viz_data, "metrics_comparison")
             radar_chart = visualizer.visualize_metrics_radar(viz_data, "metrics_radar")
-            html_report = visualizer.create_summary_report(viz_data, "comparison_report")
+            html_report = visualizer.create_summary_report(
+                viz_data,
+                "comparison_report",
+                sample_info=sample_info,
+            )
             
             visualization_files = []
             if bar_chart:
@@ -178,6 +192,7 @@ class ComparisonOP(OP):
         summary = {
             "algorithms": algorithm_names,
             "row_labels": row_labels,
+            "sample_info": sample_info,
             "metrics": all_results,
             "leaderboard_by_track": {k: v for k, v in by_track.items()},
             "leaderboard_rows": leaderboard_rows,

@@ -4,18 +4,279 @@ Evaluation result visualization.
 Generates publication-quality visualizations for evaluation results.
 """
 
+import html as html_lib
 import json
 import numpy as np
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Sequence
 import matplotlib.pyplot as plt
 import matplotlib
 matplotlib.use('Agg')  # Use non-interactive backend
-import seaborn as sns
+
+try:
+    import seaborn as sns
+except ImportError:  # pragma: no cover - optional for HTML-only report paths
+    sns = None
 
 # Set style for publication-quality plots
-plt.style.use('seaborn-v0_8-paper')
-sns.set_palette("colorblind")
+try:
+    plt.style.use('seaborn-v0_8-paper')
+except OSError:
+    plt.style.use('default')
+if sns is not None:
+    sns.set_palette("colorblind")
+
+
+# Metric taxonomy for comparison reports. Unknown keys fall into "Other".
+METRIC_GROUPS: List[Dict[str, Any]] = [
+    {
+        "id": "fidelity",
+        "title": "Intensity fidelity",
+        "description": "Voxel-wise agreement with ground truth after GT-frame alignment.",
+        "metrics": ["psnr", "ssim", "mse", "r2"],
+    },
+    {
+        "id": "resolution",
+        "title": "Resolution and geometry",
+        "description": "Fourier resolution, edge sharpness, and missing-wedge elongation.",
+        "metrics": ["fsc_resolution_px", "edge_rise_px", "elongation"],
+    },
+    {
+        "id": "morphology",
+        "title": "Solid–void morphology",
+        "description": "Binary solid overlap and surface distance after GT mid-range threshold.",
+        "metrics": ["dice", "hausdorff95_px", "porosity_abs_error"],
+    },
+    {
+        "id": "porous",
+        "title": "Porous nanomaterials",
+        "description": "Pore-size distribution, specific surface area, and connectivity.",
+        "metrics": [
+            "psd_wasserstein_px",
+            "ssa_rel_error",
+            "void_cc_fraction_abs_error",
+            "percolation_mismatch",
+        ],
+    },
+]
+
+# Direction used to pick the best value in each column.
+# "higher" | "lower" | "closer_to_one"
+METRIC_BEST_DIRECTION: Dict[str, str] = {
+    "psnr": "higher",
+    "ssim": "higher",
+    "r2": "higher",
+    "dice": "higher",
+    "mse": "lower",
+    "fsc_resolution_px": "lower",
+    "edge_rise_px": "lower",
+    "hausdorff95_px": "lower",
+    "porosity_abs_error": "lower",
+    "psd_wasserstein_px": "lower",
+    "ssa_rel_error": "lower",
+    "void_cc_fraction_abs_error": "lower",
+    "percolation_mismatch": "lower",
+    "elongation": "closer_to_one",
+}
+
+METRIC_DISPLAY_NAMES: Dict[str, str] = {
+    "psnr": "PSNR (dB)",
+    "ssim": "SSIM",
+    "mse": "MSE",
+    "r2": "R²",
+    "fsc_resolution_px": "FSC res. (px)",
+    "edge_rise_px": "Edge rise (px)",
+    "elongation": "Elongation",
+    "dice": "Dice",
+    "hausdorff95_px": "Hausdorff95 (px)",
+    "porosity_abs_error": "Porosity |Δ|",
+    "psd_wasserstein_px": "PSD W1 (px)",
+    "ssa_rel_error": "SSA rel. err.",
+    "void_cc_fraction_abs_error": "Void CC |Δ|",
+    "percolation_mismatch": "Percolation mismatch",
+}
+
+# Ordered (key, label) pairs shown in the report sample header.
+SAMPLE_INFO_FIELDS: List[tuple] = [
+    ("dataset_key", "Dataset"),
+    ("dataset_name", "Dataset name"),
+    ("variant", "Variant"),
+    ("track", "Track"),
+    ("tilt_range", "Tilt range"),
+    ("missing_wedge_angle", "Missing wedge (°)"),
+    ("gt_shape", "GT shape"),
+    ("source_root", "Source root"),
+    ("algorithms", "Algorithms"),
+    ("generated_at", "Generated at"),
+]
+
+
+def collect_sample_info(
+    evaluation_payloads: Sequence[Dict[str, Any]],
+    algorithm_names: Optional[Sequence[str]] = None,
+) -> Dict[str, Any]:
+    """
+    Build sample/header metadata from evaluation JSON payloads.
+
+    Prefers the first payload that carries non-empty ``metadata``.
+    """
+    info: Dict[str, Any] = {}
+    for payload in evaluation_payloads:
+        if not isinstance(payload, dict):
+            continue
+        meta = payload.get("metadata") or {}
+        if not isinstance(meta, dict):
+            meta = {}
+        if not info and (meta or payload.get("dataset_name") or payload.get("dataset_key")):
+            for key in (
+                "dataset_key",
+                "variant",
+                "track",
+                "tilt_range",
+                "missing_wedge_angle",
+                "gt_shape",
+                "source_root",
+            ):
+                if meta.get(key) is not None and key not in info:
+                    info[key] = meta[key]
+            dataset_name = payload.get("dataset_name") or meta.get("dataset_name")
+            if dataset_name and "dataset_name" not in info:
+                info["dataset_name"] = dataset_name
+            if not info.get("dataset_key"):
+                info["dataset_key"] = (
+                    meta.get("dataset_key")
+                    or payload.get("dataset_name")
+                    or payload.get("dataset_key")
+                )
+    if algorithm_names:
+        info["algorithms"] = ", ".join(str(a) for a in algorithm_names)
+    info.setdefault(
+        "generated_at",
+        datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
+    )
+    return {k: v for k, v in info.items() if v is not None and v != ""}
+
+
+def _format_sample_value(key: str, value: Any) -> str:
+    if value is None:
+        return "-"
+    if key == "tilt_range" and isinstance(value, (list, tuple)) and len(value) >= 2:
+        return f"[{value[0]}°, {value[1]}°]"
+    if key == "gt_shape" and isinstance(value, (list, tuple)):
+        return " × ".join(str(int(x)) for x in value)
+    if isinstance(value, (list, tuple, dict)):
+        return json.dumps(value, ensure_ascii=False)
+    return str(value)
+
+
+def _render_sample_info_section(sample_info: Optional[Dict[str, Any]]) -> str:
+    if not sample_info:
+        return ""
+    display = dict(sample_info)
+    # Avoid duplicating the same dataset id under two labels.
+    if (
+        display.get("dataset_key") is not None
+        and display.get("dataset_name") is not None
+        and str(display["dataset_key"]) == str(display["dataset_name"])
+    ):
+        display.pop("dataset_name", None)
+    rows = []
+    seen = set()
+    for key, label in SAMPLE_INFO_FIELDS:
+        if key not in display:
+            continue
+        seen.add(key)
+        rows.append(
+            "<tr><th>"
+            + html_lib.escape(label)
+            + "</th><td>"
+            + html_lib.escape(_format_sample_value(key, display[key]))
+            + "</td></tr>"
+        )
+    for key, value in display.items():
+        if key in seen:
+            continue
+        rows.append(
+            "<tr><th>"
+            + html_lib.escape(str(key))
+            + "</th><td>"
+            + html_lib.escape(_format_sample_value(key, value))
+            + "</td></tr>"
+        )
+    if not rows:
+        return ""
+    return (
+        "<div class='section sample-info'><h2>Sample</h2>"
+        "<table class='kv'>"
+        + "".join(rows)
+        + "</table></div>"
+    )
+
+
+def _extract_metrics(alg_data: Any) -> Dict[str, Any]:
+    if isinstance(alg_data, dict) and "metrics" in alg_data:
+        return dict(alg_data["metrics"] or {})
+    if isinstance(alg_data, dict):
+        return dict(alg_data)
+    return {}
+
+
+def _metric_sort_key(metric: str, value: float) -> float:
+    direction = METRIC_BEST_DIRECTION.get(metric, "higher")
+    if direction == "lower":
+        return float(value)
+    if direction == "closer_to_one":
+        return abs(float(value) - 1.0)
+    return -float(value)
+
+
+def _best_algorithms_for_metric(
+    evaluation_results: Dict[str, Dict[str, Any]],
+    metric: str,
+) -> set:
+    scored = []
+    for alg_name, alg_data in evaluation_results.items():
+        value = _extract_metrics(alg_data).get(metric)
+        if value is None:
+            continue
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            continue
+        if not np.isfinite(number):
+            continue
+        scored.append((alg_name, number))
+    if not scored:
+        return set()
+    best_key = min(_metric_sort_key(metric, number) for _, number in scored)
+    winners = {
+        name
+        for name, number in scored
+        if abs(_metric_sort_key(metric, number) - best_key) <= 1e-12
+    }
+    return winners
+
+
+def _grouped_metric_keys(all_metrics: List[str]) -> List[Dict[str, Any]]:
+    remaining = set(all_metrics)
+    groups: List[Dict[str, Any]] = []
+    for group in METRIC_GROUPS:
+        present = [m for m in group["metrics"] if m in remaining]
+        if not present:
+            continue
+        groups.append({**group, "metrics": present})
+        remaining.difference_update(present)
+    if remaining:
+        groups.append(
+            {
+                "id": "other",
+                "title": "Other",
+                "description": "Metrics not assigned to a standard category.",
+                "metrics": sorted(remaining),
+            }
+        )
+    return groups
 
 
 class EvaluationVisualizer:
@@ -274,7 +535,8 @@ class EvaluationVisualizer:
     def create_summary_report(
         self,
         evaluation_results: Dict[str, Dict[str, Any]],
-        output_name: str = "evaluation_report"
+        output_name: str = "evaluation_report",
+        sample_info: Optional[Dict[str, Any]] = None,
     ) -> str:
         """
         Create comprehensive evaluation report with visualizations.
@@ -282,6 +544,7 @@ class EvaluationVisualizer:
         Args:
             evaluation_results: Dictionary mapping algorithm names to their metrics
             output_name: Base name for output file
+            sample_info: Optional sample / dataset header fields
         
         Returns:
             Path to saved report file
@@ -294,7 +557,8 @@ class EvaluationVisualizer:
         html_content = self._generate_html_report(
             evaluation_results,
             bar_chart_path,
-            radar_chart_path
+            radar_chart_path,
+            sample_info=sample_info,
         )
         
         report_path = self.output_dir / f"{output_name}.html"
@@ -307,90 +571,149 @@ class EvaluationVisualizer:
         self,
         evaluation_results: Dict[str, Dict[str, Any]],
         bar_chart_path: Optional[str],
-        radar_chart_path: Optional[str]
+        radar_chart_path: Optional[str],
+        sample_info: Optional[Dict[str, Any]] = None,
     ) -> str:
-        """Generate HTML report content."""
-        html = """<!DOCTYPE html>
+        """Generate HTML report with metrics grouped by evaluation category."""
+        all_metrics: List[str] = []
+        seen = set()
+        for alg_data in evaluation_results.values():
+            for key in _extract_metrics(alg_data):
+                if key not in seen:
+                    seen.add(key)
+                    all_metrics.append(key)
+
+        groups = _grouped_metric_keys(all_metrics)
+        winners = {
+            metric: _best_algorithms_for_metric(evaluation_results, metric)
+            for metric in all_metrics
+        }
+        header_info = dict(sample_info or {})
+        if "algorithms" not in header_info and evaluation_results:
+            header_info["algorithms"] = ", ".join(evaluation_results.keys())
+        if "generated_at" not in header_info:
+            header_info["generated_at"] = datetime.now(timezone.utc).strftime(
+                "%Y-%m-%d %H:%M:%S UTC"
+            )
+
+        title = "Evaluation Report"
+        dataset_label = (
+            header_info.get("dataset_key")
+            or header_info.get("dataset_name")
+            or header_info.get("variant")
+        )
+        if dataset_label:
+            title = f"Evaluation Report — {dataset_label}"
+
+        html = f"""<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>Evaluation Report</title>
+    <title>{html_lib.escape(title)}</title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f5f5f5; }
-        .container { max-width: 1200px; margin: 0 auto; background-color: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        h1 { color: #333; border-bottom: 3px solid #4CAF50; padding-bottom: 10px; }
-        h2 { color: #555; margin-top: 30px; }
-        table { width: 100%; border-collapse: collapse; margin: 20px 0; }
-        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
-        th { background-color: #4CAF50; color: white; }
-        tr:hover { background-color: #f5f5f5; }
-        .metric-good { color: #4CAF50; font-weight: bold; }
-        .metric-bad { color: #f44336; font-weight: bold; }
-        img { max-width: 100%; height: auto; margin: 20px 0; border: 1px solid #ddd; border-radius: 4px; }
-        .section { margin: 30px 0; }
+        body {{ font-family: Arial, sans-serif; margin: 20px; background-color: #f5f5f5; }}
+        .container {{ max-width: 1100px; margin: 0 auto; background-color: white; padding: 24px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
+        h1 {{ color: #222; border-bottom: 3px solid #2f6f4e; padding-bottom: 10px; }}
+        h2 {{ color: #333; margin-top: 28px; margin-bottom: 6px; }}
+        h3 {{ color: #555; margin: 0 0 8px 0; font-size: 1.05rem; }}
+        .group-desc {{ color: #666; font-size: 0.92rem; margin: 0 0 10px 0; }}
+        table {{ width: 100%; border-collapse: collapse; margin: 8px 0 18px 0; font-size: 0.95rem; }}
+        th, td {{ padding: 10px 12px; text-align: right; border-bottom: 1px solid #e5e5e5; }}
+        th:first-child, td:first-child {{ text-align: left; }}
+        th {{ background-color: #2f6f4e; color: white; font-weight: 600; }}
+        tr:hover {{ background-color: #f7faf8; }}
+        table.kv th {{ width: 220px; background-color: #eef3f0; color: #333; text-align: left; font-weight: 600; }}
+        table.kv td {{ text-align: left; }}
+        .sample-info table.kv {{ margin-top: 4px; }}
+        .metric-best {{ color: #1b7a3d; font-weight: 700; background-color: #e8f6ee; }}
+        .best-tag {{ display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 999px; background: #1b7a3d; color: white; font-size: 0.72rem; font-weight: 600; vertical-align: middle; }}
+        .legend {{ color: #555; font-size: 0.9rem; margin: 8px 0 18px 0; padding: 10px 12px; background: #f3f7f4; border-radius: 6px; }}
+        .winners {{ margin: 12px 0 8px 0; }}
+        .winners table th {{ background-color: #3d5a80; }}
+        img {{ max-width: 100%; height: auto; margin: 12px 0; border: 1px solid #ddd; border-radius: 4px; }}
+        .section {{ margin: 24px 0; }}
+        .dir-note {{ color: #888; font-size: 0.78rem; font-weight: normal; }}
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Evaluation Report</h1>
+        <h1>{html_lib.escape(title)}</h1>
+{_render_sample_info_section(header_info)}
+        <div class="legend">
+            Metrics are grouped by evaluation content. In each column the best
+            value is highlighted in green and tagged <span class="best-tag">best</span>.
+            Higher is better for PSNR / SSIM / R² / Dice; lower is better for error,
+            distance, and mismatch metrics; Elongation is best when closest to 1.
+        </div>
 """
-        
-        # Add metrics table
-        html += "<div class='section'><h2>Metrics Summary</h2><table>"
-        
-        # Get all metrics
-        all_metrics = set()
-        for alg_data in evaluation_results.values():
-            if isinstance(alg_data, dict) and "metrics" in alg_data:
-                all_metrics.update(alg_data["metrics"].keys())
-            elif isinstance(alg_data, dict):
-                all_metrics.update(alg_data.keys())
-        
-        all_metrics = sorted(list(all_metrics))
-        
-        # Table header
-        html += "<tr><th>Algorithm</th>"
-        for metric in all_metrics:
-            html += f"<th>{metric.upper()}</th>"
-        html += "</tr>"
-        
-        # Table rows
-        for alg_name, alg_data in evaluation_results.items():
-            html += f"<tr><td><strong>{alg_name}</strong></td>"
-            
-            if isinstance(alg_data, dict) and "metrics" in alg_data:
-                metrics = alg_data["metrics"]
-            elif isinstance(alg_data, dict):
-                metrics = alg_data
-            else:
-                metrics = {}
-            
-            for metric in all_metrics:
-                value = metrics.get(metric)
-                if value is not None:
-                    if metric in ['psnr', 'ssim']:
-                        css_class = 'metric-good' if value > (30 if metric == 'psnr' else 0.8) else 'metric-bad'
-                    elif metric == 'mse':
-                        css_class = 'metric-good' if value < 0.01 else 'metric-bad'
-                    else:
-                        css_class = ''
-                    
-                    html += f"<td class='{css_class}'>{value:.4f}</td>"
-                else:
-                    html += "<td>-</td>"
-            html += "</tr>"
-        
+
+        # Compact winners board: one best algorithm per metric.
+        html += "<div class='section winners'><h2>Best algorithm per metric</h2><table>"
+        html += "<tr><th>Category</th><th>Metric</th><th>Best algorithm(s)</th><th>Value</th></tr>"
+        for group in groups:
+            for metric in group["metrics"]:
+                best_names = sorted(winners.get(metric, set()))
+                if not best_names:
+                    continue
+                sample_metrics = _extract_metrics(evaluation_results[best_names[0]])
+                value = sample_metrics.get(metric)
+                label = METRIC_DISPLAY_NAMES.get(metric, metric)
+                alg_label = ", ".join(best_names)
+                value_label = f"{float(value):.4f}" if value is not None else "-"
+                html += (
+                    f"<tr><td>{group['title']}</td><td>{label}</td>"
+                    f"<td>{alg_label}</td><td>{value_label}</td></tr>"
+                )
         html += "</table></div>"
-        
-        # Add visualizations
+
+        for group in groups:
+            html += "<div class='section'>"
+            html += f"<h2>{group['title']}</h2>"
+            html += f"<p class='group-desc'>{group['description']}</p>"
+            html += "<table><tr><th>Algorithm</th>"
+            for metric in group["metrics"]:
+                label = METRIC_DISPLAY_NAMES.get(metric, metric)
+                direction = METRIC_BEST_DIRECTION.get(metric, "higher")
+                if direction == "higher":
+                    tip = "↑ better"
+                elif direction == "lower":
+                    tip = "↓ better"
+                else:
+                    tip = "→ 1 better"
+                html += f"<th>{label}<br><span class='dir-note'>{tip}</span></th>"
+            html += "</tr>"
+
+            for alg_name, alg_data in evaluation_results.items():
+                metrics = _extract_metrics(alg_data)
+                html += f"<tr><td><strong>{alg_name}</strong></td>"
+                for metric in group["metrics"]:
+                    value = metrics.get(metric)
+                    if value is None:
+                        html += "<td>-</td>"
+                        continue
+                    try:
+                        number = float(value)
+                    except (TypeError, ValueError):
+                        html += f"<td>{value}</td>"
+                        continue
+                    is_best = alg_name in winners.get(metric, set())
+                    css = "metric-best" if is_best else ""
+                    tag = " <span class='best-tag'>best</span>" if is_best else ""
+                    html += f"<td class='{css}'>{number:.4f}{tag}</td>"
+                html += "</tr>"
+            html += "</table></div>"
+
         if bar_chart_path:
-            html += f"<div class='section'><h2>Metrics Comparison (Bar Chart)</h2>"
-            html += f"<img src='{Path(bar_chart_path).name}' alt='Bar Chart'></div>"
-        
+            html += (
+                "<div class='section'><h2>Metrics Comparison (Bar Chart)</h2>"
+                f"<img src='{Path(bar_chart_path).name}' alt='Bar Chart'></div>"
+            )
         if radar_chart_path:
-            html += f"<div class='section'><h2>Metrics Comparison (Radar Chart)</h2>"
-            html += f"<img src='{Path(radar_chart_path).name}' alt='Radar Chart'></div>"
-        
+            html += (
+                "<div class='section'><h2>Metrics Comparison (Radar Chart)</h2>"
+                f"<img src='{Path(radar_chart_path).name}' alt='Radar Chart'></div>"
+            )
+
         html += """
     </div>
 </body>
