@@ -1,12 +1,15 @@
 # IsoNet for Bohr Station. Short paste (UI white-screens on long Dockerfiles).
 # Uses git clone (raw.githubusercontent.com TLS fails on Bohrium builders).
-# CACHE_BUST: NVIDIA_VISIBLE_DEVICES remap fix 20261109.
+# Change ET_CACHE_BUST whenever main fixes must be pulled (BuildKit caches the RUN).
 FROM registry.dp.tech/davinci/isonet:20260113153511
 USER root
-RUN apt-get update \
+ARG ET_CACHE_BUST=20261110-d3db84a
+RUN echo "ET_CACHE_BUST=${ET_CACHE_BUST}" \
+ && apt-get update \
  && apt-get install -y --no-install-recommends git ca-certificates \
  && rm -rf /var/lib/apt/lists/* \
  && git clone --depth 1 -b main https://github.com/CATLEI/ET-benchmark.git /tmp/etb \
+ && git -C /tmp/etb rev-parse HEAD \
  && bash /tmp/etb/docker/algorithms/isonet/bohr_build.sh
 WORKDIR /app
 ENTRYPOINT ["/app/docker-entrypoint.sh"]

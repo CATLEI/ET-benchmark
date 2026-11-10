@@ -1,11 +1,14 @@
 # WUCon for Bohr Station. Short paste; git clone (not raw.githubusercontent.com).
-# CACHE_BUST: change this comment to force a clean rebuild (bm3d fix 20261109).
+# Change ET_CACHE_BUST whenever main fixes must be pulled (BuildKit caches the RUN).
 FROM registry.dp.tech/davinci/wucon:20260113160259
 USER root
-RUN apt-get update \
+ARG ET_CACHE_BUST=20261110-d3db84a
+RUN echo "ET_CACHE_BUST=${ET_CACHE_BUST}" \
+ && apt-get update \
  && apt-get install -y --no-install-recommends git ca-certificates \
  && rm -rf /var/lib/apt/lists/* \
  && git clone --depth 1 -b main https://github.com/CATLEI/ET-benchmark.git /tmp/etb \
+ && git -C /tmp/etb rev-parse HEAD \
  && bash /tmp/etb/docker/algorithms/wucon/bohr_build.sh
 WORKDIR /app
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
