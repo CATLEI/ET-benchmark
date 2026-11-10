@@ -3,7 +3,7 @@
 # Change ET_CACHE_BUST whenever main fixes must be pulled (BuildKit caches the RUN).
 FROM registry.dp.tech/davinci/isonet:20260113153511
 USER root
-ARG ET_CACHE_BUST=20261110-d3db84a
+ARG ET_CACHE_BUST=20261111-tf-cudnn89
 RUN echo "ET_CACHE_BUST=${ET_CACHE_BUST}" \
  && apt-get update \
  && apt-get install -y --no-install-recommends git ca-certificates \

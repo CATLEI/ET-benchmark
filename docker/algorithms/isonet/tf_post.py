@@ -15,21 +15,21 @@ PROBE = (
 
 RESTORE = {"tensorflow", "tensorflow-gpu", "keras"}
 
-# TF 2.15 pip GPU stack (when base has no site-packages/nvidia/*/lib).
-# Versions match tensorflow[and-cuda]==2.15.x extras; unpinned fallbacks ok.
+# TF 2.15 needs CUDA 12.2 + cuDNN 8.9. Unpinned nvidia-cudnn-cu12 resolves to
+# cuDNN 9.x → TF "Cannot dlopen some GPU libraries" / TF_GPU_COUNT 0 on Bohrium.
 _NVIDIA_CU12_PACKAGES = (
-    "nvidia-cublas-cu12",
-    "nvidia-cuda-cupti-cu12",
-    "nvidia-cuda-nvcc-cu12",
-    "nvidia-cuda-nvrtc-cu12",
-    "nvidia-cuda-runtime-cu12",
-    "nvidia-cudnn-cu12",
-    "nvidia-cufft-cu12",
-    "nvidia-curand-cu12",
-    "nvidia-cusolver-cu12",
-    "nvidia-cusparse-cu12",
-    "nvidia-nccl-cu12",
-    "nvidia-nvjitlink-cu12",
+    "nvidia-cublas-cu12==12.2.5.6",
+    "nvidia-cuda-cupti-cu12==12.2.142",
+    "nvidia-cuda-nvcc-cu12==12.2.140",
+    "nvidia-cuda-nvrtc-cu12==12.2.140",
+    "nvidia-cuda-runtime-cu12==12.2.140",
+    "nvidia-cudnn-cu12==8.9.7.29",
+    "nvidia-cufft-cu12==11.0.8.103",
+    "nvidia-curand-cu12==10.3.3.141",
+    "nvidia-cusolver-cu12==11.5.2.141",
+    "nvidia-cusparse-cu12==12.1.2.141",
+    "nvidia-nccl-cu12==2.16.5",
+    "nvidia-nvjitlink-cu12==12.2.140",
 )
 
 
@@ -110,10 +110,45 @@ def _pip_install(*specs: str) -> int:
     )
 
 
+def _cudnn_major_from_dir(lib_dir: str) -> str:
+    """Return '8' / '9' / '?' from libcudnn.so.* next to a pip nvidia lib dir."""
+    matches = sorted(glob.glob(os.path.join(lib_dir, "libcudnn.so.*")))
+    for path in matches:
+        name = os.path.basename(path)
+        # libcudnn.so.8.9.7 / libcudnn.so.9.1.0
+        parts = name.split(".")
+        if len(parts) >= 3 and parts[2].isdigit():
+            return parts[2]
+    return "?"
+
+
 def ensure_nvidia_pip_libs(tf_ver: str) -> list:
-    """Install pip CUDA libs if missing. Davinci may use system CUDA only."""
+    """Install/repair pip CUDA libs for TF 2.15 (cuDNN 8.9, not 9.x)."""
     dirs = nvidia_pip_lib_dirs()
-    if dirs:
+    cudnn_dirs = [d for d in dirs if d.rstrip("/").endswith("/cudnn/lib")]
+    cudnn_major = (
+        _cudnn_major_from_dir(cudnn_dirs[0]) if cudnn_dirs else "missing"
+    )
+    print("TF_CUDNN_MAJOR %s" % cudnn_major, flush=True)
+
+    # Always re-pin when cuDNN is missing or too new for TF 2.15.
+    need_pin = (not dirs) or (cudnn_major not in ("8",))
+    if need_pin:
+        rc = _pip_install(*_NVIDIA_CU12_PACKAGES)
+        dirs = nvidia_pip_lib_dirs()
+        cudnn_dirs = [d for d in dirs if d.rstrip("/").endswith("/cudnn/lib")]
+        cudnn_major = (
+            _cudnn_major_from_dir(cudnn_dirs[0]) if cudnn_dirs else "missing"
+        )
+        print(
+            "TF_NVIDIA_PIP_LIBS_CU12 rc=%s cudnn=%s dirs=%s"
+            % (rc, cudnn_major, " ".join(dirs) or "(none)"),
+            flush=True,
+        )
+        if dirs and cudnn_major == "8":
+            return dirs
+
+    if dirs and cudnn_major == "8":
         return dirs
 
     constraints = pathlib.Path("/tmp/tf-constraints.txt")
@@ -127,17 +162,6 @@ def ensure_nvidia_pip_libs(tf_ver: str) -> list:
         if dirs:
             return dirs
 
-    # Prefer explicit nvidia-* packages so we do not replace a working CUDA TF wheel.
-    rc = _pip_install(*_NVIDIA_CU12_PACKAGES)
-    dirs = nvidia_pip_lib_dirs()
-    print(
-        "TF_NVIDIA_PIP_LIBS_CU12 rc=%s dirs=%s"
-        % (rc, " ".join(dirs) or "(none)"),
-        flush=True,
-    )
-    if dirs:
-        return dirs
-
     # Last resort: tensorflow[and-cuda] extra (may re-resolve tensorflow).
     ver = (tf_ver or "").strip()
     if ver:
@@ -145,6 +169,8 @@ def ensure_nvidia_pip_libs(tf_ver: str) -> list:
         # Re-pin CUDA build if the extra swapped in a CPU wheel.
         if constraints.is_file():
             restore(constraints)
+        # and-cuda may pull cuDNN 9; force TF 2.15 pins again.
+        _pip_install(*_NVIDIA_CU12_PACKAGES)
         dirs = nvidia_pip_lib_dirs()
         print(
             "TF_NVIDIA_PIP_LIBS_AND_CUDA %s" % (" ".join(dirs) or "(none)"),

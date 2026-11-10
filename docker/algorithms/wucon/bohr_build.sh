@@ -40,9 +40,11 @@ TORCH_INDEX_URL="${TORCH_INDEX_URL}" TORCH_VERSION="${TORCH_VERSION}" \
   python /tmp/etdflow-scripts/torch_post.py
 
 # Upstream env.yml pip deps + odl (proc_freq imports bm3d at module load).
+# astra-toolbox provides odl's astra_cuda RayTransform backend (WUCON cryo_geometry).
 python -m pip install --no-cache-dir --timeout 300 \
   -i https://pypi.tuna.tsinghua.edu.cn/simple \
   "odl==0.8.3" \
+  "astra-toolbox" \
   "scikit-image>=0.19" \
   "matplotlib>=3.5" \
   "tqdm>=4.60" \
@@ -82,8 +84,35 @@ if [ "${tv_ok}" != "1" ]; then
   exit 1
 fi
 
-python -c "import importlib; mods='odl odl.contrib.torch skimage matplotlib tqdm tensorboard PIL mrcfile h5py scipy torch torchvision bm3d pywt imageio tifffile networkx'.split(); \
+python -c "import importlib; mods='odl odl.contrib.torch astra skimage matplotlib tqdm tensorboard PIL mrcfile h5py scipy torch torchvision bm3d pywt imageio tifffile networkx'.split(); \
 [(importlib.import_module(n), print('WUCON_DEP_OK', n)) for n in mods]"
+# cryo_geometry historically failed with ModuleNotFoundError: odl — hard-fail here.
+python -c "import odl; import odl.contrib.torch; print('WUCON_ODL_OK', odl.__version__)"
+# Build-time: require importable astra. astra.use_cuda() / odl astra_cuda are
+# often False during docker build (no GPU); Bohrium runtime with L20 enables them.
+python - <<'PY'
+import astra
+
+print("WUCON_ASTRA_OK", getattr(astra, "__version__", "unknown"))
+try:
+    cuda = bool(astra.astra.use_cuda())
+except Exception as exc:
+    cuda = False
+    print("WUCON_ASTRA_USE_CUDA_ERR", exc)
+print("WUCON_ASTRA_USE_CUDA", cuda)
+astra_ok = False
+try:
+    from odl.tomo.backends import ASTRA_AVAILABLE as _aa
+
+    astra_ok = bool(_aa)
+    print("WUCON_ODL_ASTRA_AVAILABLE", astra_ok)
+except Exception as exc:
+    print("WUCON_ODL_ASTRA_FLAG_ERR", exc)
+    # odl 0.8.x: presence of astra module is enough for astra_cpu; cuda is runtime.
+    astra_ok = True
+if not astra_ok:
+    raise SystemExit("odl does not see astra after astra-toolbox install")
+PY
 
 cp docker/algorithms/wucon/run_algorithm.py /app/run_algorithm.py
 cp docker/algorithms/wucon/docker-entrypoint.sh /app/docker-entrypoint.sh

@@ -18,8 +18,11 @@ COPY requirements-etdflow-algorithm.txt /tmp/requirements-etdflow-algorithm.txt
 COPY et_dflow/ ./et_dflow/
 COPY setup.py pyproject.toml ./
 
-RUN pip install --no-cache-dir -r /tmp/requirements-etdflow-algorithm.txt \
-    && pip install --no-cache-dir --no-deps -e .
+RUN apt-get update && apt-get install -y --no-install-recommends libfftw3-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir -r /tmp/requirements-etdflow-algorithm.txt \
+    && pip install --no-cache-dir --no-deps -e . \
+    && pip install --no-cache-dir pyFFTW
 
 COPY docker/algorithms/genfire/run_algorithm.py /app/run_algorithm.py
 COPY docker/algorithms/genfire/docker-entrypoint.sh /app/docker-entrypoint.sh

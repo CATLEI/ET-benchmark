@@ -17,8 +17,11 @@ WORKDIR /tmp/etdflow-build
 
 ARG ET_DFLOW_REPO_URL=https://github.com/CATLEI/ET-benchmark.git
 ARG ET_DFLOW_REPO_REF=main
+# Bump when rebuild must re-run pip (pyFFTW) despite cached git clone layer.
+ARG ET_CACHE_BUST=20261111-pyfftw
 
 RUN apt-get update && apt-get install -y --no-install-recommends git \
+    libfftw3-dev \
     && rm -rf /var/lib/apt/lists/*
 
 RUN test -n "${ET_DFLOW_REPO_URL}" || \
@@ -30,10 +33,14 @@ RUN git clone "${ET_DFLOW_REPO_URL}" repo && \
 
 WORKDIR /tmp/etdflow-build/repo
 
-RUN python -m pip install --no-cache-dir --timeout 300 \
+RUN echo "ET_CACHE_BUST=${ET_CACHE_BUST}" \
+ && python -m pip install --no-cache-dir --timeout 300 \
     -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements-etdflow-algorithm.txt && \
     python -m pip install --no-cache-dir --timeout 300 \
-    -i https://pypi.tuna.tsinghua.edu.cn/simple --no-deps .
+    -i https://pypi.tuna.tsinghua.edu.cn/simple --no-deps . && \
+    python -m pip install --no-cache-dir --timeout 300 \
+    -i https://pypi.tuna.tsinghua.edu.cn/simple pyFFTW && \
+    python -c "import pyfftw; print('GENFIRE_PYFFTW_OK', pyfftw.__version__)"
 
 RUN cp docker/algorithms/genfire/run_algorithm.py /app/run_algorithm.py && \
     cp docker/algorithms/genfire/docker-entrypoint.sh /app/docker-entrypoint.sh && \

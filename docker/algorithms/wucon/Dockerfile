@@ -124,8 +124,10 @@ print("TORCH_OK version=%s cuda=%s" % (ver, cuda), flush=True)
 PY
 
 # Upstream wucon src imports (proc_freq needs bm3d). Python 3.10 → odl==0.8.3.
+# astra-toolbox is required for odl.tomo RayTransform(impl='astra_cuda').
 RUN pip install --no-cache-dir --timeout 300 \
     "odl==0.8.3" \
+    "astra-toolbox" \
     "scikit-image>=0.19" \
     "matplotlib>=3.5" \
     "tqdm>=4.60" \
@@ -138,7 +140,7 @@ RUN pip install --no-cache-dir --timeout 300 \
     "imageio>=2.20" \
     "tifffile>=2021.11.2" \
     "networkx>=2.6" && \
-    python -c "import importlib; mods='odl odl.contrib.torch skimage matplotlib tqdm tensorboard PIL mrcfile h5py scipy torch torchvision bm3d pywt imageio tifffile networkx'.split(); \
+    python -c "import importlib; mods='odl odl.contrib.torch astra skimage matplotlib tqdm tensorboard PIL mrcfile h5py scipy torch torchvision bm3d pywt imageio tifffile networkx'.split(); \
 [(importlib.import_module(n), print('WUCON_DEP_OK', n)) for n in mods]"
 
 COPY docker/algorithms/wucon/run_algorithm.py /app/run_algorithm.py

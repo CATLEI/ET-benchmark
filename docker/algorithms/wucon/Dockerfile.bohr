@@ -2,7 +2,7 @@
 # Change ET_CACHE_BUST whenever main fixes must be pulled (BuildKit caches the RUN).
 FROM registry.dp.tech/davinci/wucon:20260113160259
 USER root
-ARG ET_CACHE_BUST=20261110-d3db84a
+ARG ET_CACHE_BUST=20261111-astra-cuda
 RUN echo "ET_CACHE_BUST=${ET_CACHE_BUST}" \
  && apt-get update \
  && apt-get install -y --no-install-recommends git ca-certificates \

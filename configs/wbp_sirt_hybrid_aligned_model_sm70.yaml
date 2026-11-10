@@ -146,7 +146,8 @@ algorithms:
       use_native: true
       allow_placeholder: false
       tvm_niter: 50
-      tvm_tviter: 20
+      tvm_tviter: 10
+      tvm_alpha: 0.001
       nVoxel: [512, 513, 513]
       tilt_range: [-70, 70]
     resources:
@@ -163,15 +164,15 @@ algorithms:
       use_native: true
       allow_placeholder: false
       discrete_method: "dart"
-      dart_gray_levels: [0.0, 255.0]
+      dart_gray_levels: [0.0, 160.0]
       dart_algebraic: "SIRT_CUDA"
-      dart_init_iters: 50
-      dart_outer_iters: 20
+      dart_init_iters: 80
+      dart_outer_iters: 30
       dart_inner_iters: 5
       dart_connectivity: 8
       dart_random: 0.1
       dart_seed: 0
-      dart_smooth_sigma: 1.0
+      dart_smooth_sigma: 0.5
       tilt_range: [-70, 70]
     resources:
       cpu: 8
@@ -188,12 +189,12 @@ algorithms:
       allow_placeholder: false
       discrete_method: "tvr_dart"
       tvr_n_gray: 2
-      tvr_lambda: 10
+      tvr_lambda: 5
       tvr_huber_epsilon: 1.0e-4
-      tvr_init_sirt_iters: 50
-      tvr_estimate_iters: 20
-      tvr_niter: 50
-      tvr_sharpness: 4
+      tvr_init_sirt_iters: 80
+      tvr_estimate_iters: 30
+      tvr_niter: 80
+      tvr_sharpness: 2
       tilt_range: [-70, 70]
     resources:
       cpu: 8
@@ -207,19 +208,21 @@ algorithms:
   # native_genfire int-ratio fix lands on main.
   genfire:
     enabled: true
+    # Rebuild Dockerfile.bohr (pyFFTW + ET_CACHE_BUST) and paste new URI here.
     docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/genfire:20261106"
     parameters:
       use_native: true
       allow_placeholder: false
       genfire_num_iterations: 100
-      genfire_oversampling_ratio: 1
+      genfire_oversampling_ratio: 2
       genfire_gridding_method: "FFT"
       tilt_range: [-70, 70]
     resources:
       cpu: 16
-      memory: "64Gi"
+      # Oversampling=2 on 512³ peaks well above 64Gi (previous run: SIGKILL -9
+      # while assembling Fourier grid). Match scass RAM; do not leave memory < scass.
+      memory: "96Gi"
       gpu: false
-      # Same memory class as sirt; GENFIRE CPU iterations are memory-heavy.
       scass_type: "c24_m96_cpu"
 
   # Even/odd ramp FBP + ddw prepare/fit/refine inside one GPU pod.
@@ -232,7 +235,7 @@ algorithms:
       use_native: true
       allow_placeholder: false
       ddw_pipeline: true
-      ddw_num_epochs: 300
+      ddw_num_epochs: 1000
       tilt_range: [-70, 70]
       # Same native→GT recipe as astra_fbp / astra_sirt.
       output_to_gt:
@@ -253,7 +256,7 @@ algorithms:
   # Rebuild after NVIDIA_* ENV + entrypoint LD_LIBRARY_PATH fix (TF saw 0 GPUs on L20).
   isonet:
     enabled: true
-    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/isonet:20261109"
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/isonet:20261110"
     parameters:
       use_native: true
       allow_placeholder: false
@@ -273,7 +276,7 @@ algorithms:
   # Rebuild after odl pip install (cryo_geometry ModuleNotFoundError: odl).
   wucon:
     enabled: true
-    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/wucon:20261108"
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/wucon:20261110"
     parameters:
       use_native: true
       allow_placeholder: false
@@ -319,7 +322,7 @@ workflow:
   output_dir: "./results"
   execution_mode: "hybrid"
   # Max concurrent algorithm pods / Bohrium jobs in the parallel Steps row.
-  parallelism: 9
+  parallelism: 11
   # One algorithm OOM/fail must not stop scheduling the rest (Argo failFast off +
   # continueOn.failed on each algorithm step).
   continue_on_algorithm_failure: true

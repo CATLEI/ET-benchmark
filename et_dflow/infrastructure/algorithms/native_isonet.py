@@ -114,11 +114,28 @@ try:
     print("LIBCUDA_CDLL ok")
 except Exception as exc:
     print("LIBCUDA_CDLL fail %s" % exc)
+# TF 2.15 dlopens these; cuDNN 9 leaves libcudnn.so.8 missing → TF_GPU_COUNT 0.
+for soname in (
+    "libcudart.so.12",
+    "libcublas.so.12",
+    "libcudnn.so.8",
+    "libcufft.so.11",
+):
+    try:
+        ctypes.CDLL(soname)
+        print("TF_DEP_CDLL ok %s" % soname)
+    except Exception as exc:
+        print("TF_DEP_CDLL fail %s %s" % (soname, exc))
 nv_pip = []
 for key in ("purelib", "platlib"):
     root = sysconfig.get_paths().get(key) or ""
     nv_pip.extend(sorted(glob.glob(os.path.join(root, "nvidia", "*", "lib"))))
 print("NVIDIA_PIP_LIBS %s" % (nv_pip or "missing"))
+cudnn_sos = []
+for d in nv_pip:
+    if d.rstrip("/").endswith("/cudnn/lib"):
+        cudnn_sos.extend(sorted(glob.glob(os.path.join(d, "libcudnn.so*"))))
+print("NVIDIA_CUDNN_SOS %s" % (cudnn_sos or "missing"))
 smi = shutil.which("nvidia-smi")
 print("NVIDIA_SMI_BIN %s" % (smi or "missing"))
 if smi:
@@ -602,6 +619,9 @@ def run_isonet_reconstruction(
     rec_sig.metadata.set_item("et_dflow.isonet_output", str(chosen))
     rec_sig.metadata.set_item("et_dflow.isonet_pixel_size", pixel_size)
     rec_sig.metadata.set_item("et_dflow.isonet_iterations", iterations)
+    # Protocol Track B: post-recon wedge fill (input was in-container WBP).
+    rec_sig.metadata.set_item("et_dflow.protocol_track", "B_post_recon_wedge_fill")
+    rec_sig.metadata.set_item("et_dflow.full_volume", True)
 
     return make_adapter_algorithm_result(
         rec_sig,
@@ -614,5 +634,7 @@ def run_isonet_reconstruction(
             "isonet_cube_size": cube_size,
             "isonet_model": str(model),
             "isonet_work_dir": str(work_root),
+            "protocol_track": "B_post_recon_wedge_fill",
+            "full_volume": True,
         },
     )

@@ -38,4 +38,5 @@ python /tmp/etdflow-scripts/tf_post.py
 cp docker/algorithms/isonet/run_algorithm.py /app/run_algorithm.py
 cp docker/algorithms/isonet/docker-entrypoint.sh /app/docker-entrypoint.sh
 cp docker/algorithms/isonet/nvidia_ld_path.sh /app/nvidia_ld_path.sh
-chmod +x /app/docker-entrypoint.sh
+cp docker/algorithms/isonet/gpu_smoke.sh /app/gpu_smoke.sh
+chmod +x /app/docker-entrypoint.sh /app/gpu_smoke.sh
