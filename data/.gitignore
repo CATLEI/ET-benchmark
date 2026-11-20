@@ -28,3 +28,6 @@ archive/
 .DS_Store
 Thumbs.db
 
+# Local protocol datasets (do not version; regenerate with convert/prepare scripts)
+datasets/simulated/aligned_model_*/
+datasets/experimental/
