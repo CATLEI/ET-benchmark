@@ -1,0 +1,389 @@
+# AUTO-GENERATED protocol batch config. Do not edit the sm70 base.
+# See docs/ET_TOMO_BENCHMARK_PROTOCOL.md and configs/protocol/README.md
+# Angles: prefer HyperSpy TEM.tilt_series on each dataset; algorithm tilt_range is fallback only.
+datasets:
+  aligned_model_sm70:
+    enabled: true
+    path: ./data/datasets/simulated/aligned_model_sm70_v1/raw/tilt_series.hspy
+    format: hyperspy
+    ground_truth_path: ./data/datasets/simulated/aligned_model_sm70_v1/ground_truth/volume.hspy
+    metadata:
+      variant: aligned_model_sm70
+      tilt_range:
+      - -70.0
+      - 70.0
+      missing_wedge_angle: 70.0
+      missing_wedge_deg: 40.0
+      gt_shape:
+      - 512
+      - 512
+      - 512
+      protocol_axis: C
+      angular_step_deg: 1.0
+algorithms:
+  wbp:
+    enabled: false
+    docker_image: registry.dp.tech/dptech/dp/native/prod-23359/wbp:20261019v1
+    parameters:
+      filter_type: ramp
+      filter_cutoff: 1.0
+      Nrecon: 513
+      output_to_gt:
+        axes_order:
+        - 1
+        - 2
+        - 0
+        flip_axes:
+        - 2
+        trim: leading
+        target_shape:
+        - 512
+        - 512
+        - 512
+    resources:
+      cpu: 4
+      memory: 16Gi
+      gpu: false
+      scass_type: c8_m32_cpu
+  sirt:
+    enabled: false
+    docker_image: registry.dp.tech/dptech/dp/native/prod-23359/sirt:20261019
+    parameters:
+      backend: cpu_sirt
+      iterations: 50
+      relaxation_factor: 0.5
+      update_method: landweber
+      dtype: float32
+      output_to_gt:
+        enabled: false
+    resources:
+      cpu: 16
+      memory: 64Gi
+      gpu: false
+      scass_type: c32_m64_cpu
+  astra_fbp:
+    enabled: false
+    docker_image: registry.dp.tech/dptech/dp/native/prod-23359/astra:20261017
+    parameters:
+      use_native: true
+      allow_placeholder: false
+      astra_algorithm: FBP_CUDA
+      filter_type: ram-lak
+      tilt_range:
+      - -70.0
+      - 70.0
+      output_to_gt:
+        axes_order:
+        - 1
+        - 2
+        - 0
+        flip_axes:
+        - 0
+        - 2
+        trim: leading
+        target_shape:
+        - 512
+        - 512
+        - 512
+    resources:
+      cpu: 8
+      memory: 32Gi
+      gpu: 1
+      scass_type: c16_m62_1 * NVIDIA T4
+  astra_sirt:
+    enabled: false
+    docker_image: registry.dp.tech/dptech/dp/native/prod-23359/astra:20261017
+    parameters:
+      use_native: true
+      allow_placeholder: false
+      astra_algorithm: SIRT3D_CUDA
+      astra_algorithm_fallbacks: []
+      astra_niter: 50
+      astra_vol_shape:
+      - 513
+      - 513
+      - 512
+      tilt_range:
+      - -70.0
+      - 70.0
+      output_to_gt:
+        axes_order:
+        - 1
+        - 2
+        - 0
+        flip_axes:
+        - 0
+        - 2
+        trim: leading
+        target_shape:
+        - 512
+        - 512
+        - 512
+    resources:
+      cpu: 8
+      memory: 32Gi
+      gpu: 1
+      scass_type: c16_m62_1 * NVIDIA T4
+  tigre_sirt:
+    enabled: false
+    docker_image: registry.dp.tech/dptech/dp/native/prod-23359/tigre:20261027
+    parameters:
+      use_native: true
+      allow_placeholder: false
+      tigre_algorithm: sirt
+      tigre_niter: 50
+      nVoxel:
+      - 512
+      - 513
+      - 513
+      tilt_range:
+      - -70.0
+      - 70.0
+      output_to_gt:
+        axes_order:
+        - 2
+        - 1
+        - 0
+        flip_axes:
+        - 2
+        trim: leading
+        target_shape:
+        - 512
+        - 512
+        - 512
+    resources:
+      cpu: 8
+      memory: 32Gi
+      gpu: 1
+      scass_type: c16_m62_1 * NVIDIA T4
+  tvm:
+    enabled: false
+    docker_image: registry.dp.tech/dptech/dp/native/prod-23359/tvm:20261107
+    parameters:
+      use_native: true
+      allow_placeholder: false
+      tvm_niter: 50
+      tvm_tviter: 10
+      tvm_alpha: 0.001
+      nVoxel:
+      - 512
+      - 513
+      - 513
+      tilt_range:
+      - -70.0
+      - 70.0
+    resources:
+      cpu: 8
+      memory: 32Gi
+      gpu: 1
+      scass_type: c16_m62_1 * NVIDIA T4
+  dart:
+    enabled: false
+    docker_image: registry.dp.tech/dptech/dp/native/prod-23359/discrete:20261107
+    parameters:
+      use_native: true
+      allow_placeholder: false
+      discrete_method: dart
+      dart_gray_levels:
+      - 0.0
+      - 160.0
+      dart_algebraic: SIRT_CUDA
+      dart_init_iters: 80
+      dart_outer_iters: 30
+      dart_inner_iters: 5
+      dart_connectivity: 8
+      dart_random: 0.1
+      dart_seed: 0
+      dart_smooth_sigma: 0.5
+      tilt_range:
+      - -70.0
+      - 70.0
+    resources:
+      cpu: 8
+      memory: 32Gi
+      gpu: 1
+      scass_type: c16_m62_1 * NVIDIA T4
+  tvr_dart:
+    enabled: false
+    docker_image: registry.dp.tech/dptech/dp/native/prod-23359/discrete:20261107
+    parameters:
+      use_native: true
+      allow_placeholder: false
+      discrete_method: tvr_dart
+      tvr_n_gray: 2
+      tvr_lambda: 5
+      tvr_huber_epsilon: 0.0001
+      tvr_init_sirt_iters: 80
+      tvr_estimate_iters: 30
+      tvr_niter: 80
+      tvr_sharpness: 2
+      tilt_range:
+      - -70.0
+      - 70.0
+    resources:
+      cpu: 8
+      memory: 32Gi
+      gpu: 1
+      scass_type: c16_m62_1 * NVIDIA T4
+  genfire:
+    enabled: false
+    docker_image: registry.dp.tech/dptech/dp/native/prod-23359/genfire:20261106
+    parameters:
+      use_native: true
+      allow_placeholder: false
+      genfire_num_iterations: 100
+      genfire_oversampling_ratio: 1
+      genfire_gridding_method: FFT
+      tilt_range:
+      - -70.0
+      - 70.0
+    resources:
+      cpu: 16
+      memory: 96Gi
+      gpu: false
+      scass_type: c24_m96_cpu
+  deepdewedge:
+    enabled: false
+    docker_image: registry.dp.tech/dptech/dp/native/prod-23359/deepdewedge:20261104
+    parameters:
+      use_native: true
+      allow_placeholder: false
+      ddw_pipeline: true
+      ddw_num_epochs: 1000
+      tilt_range:
+      - -70.0
+      - 70.0
+      output_to_gt:
+        axes_order:
+        - 1
+        - 2
+        - 0
+        flip_axes:
+        - 0
+        - 2
+        trim: leading
+        target_shape:
+        - 512
+        - 512
+        - 512
+    resources:
+      cpu: 8
+      memory: 64Gi
+      gpu: 1
+      scass_type: 1 * NVIDIA L20_48g
+  isonet:
+    enabled: false
+    docker_image: registry.dp.tech/dptech/dp/native/prod-23359/isonet:20261111
+    parameters:
+      use_native: true
+      allow_placeholder: false
+      isonet_pipeline: true
+      isonet_pixel_size: 10.0
+      isonet_iterations: 5
+      isonet_number_subtomos: 100
+      tilt_range:
+      - -70.0
+      - 70.0
+      output_to_gt:
+        axes_order:
+        - 0
+        - 2
+        - 1
+        flip_axes:
+        - 1
+        - 2
+        trim: leading
+        target_shape:
+        - 512
+        - 512
+        - 512
+    resources:
+      cpu: 8
+      memory: 64Gi
+      gpu: 1
+      scass_type: 1 * NVIDIA L20_48g
+  wucon:
+    enabled: true
+    docker_image: registry.dp.tech/dptech/dp/native/prod-23359/wucon:20261111
+    parameters:
+      use_native: true
+      allow_placeholder: false
+      wucon_pipeline: true
+      wucon_recon_subset: false
+      wucon_n_epochs_mid: 50
+      wucon_n_epochs_all: 20
+      wucon_case_id: 90
+      tilt_range:
+      - -70.0
+      - 70.0
+    resources:
+      cpu: 8
+      memory: 64Gi
+      gpu: 1
+      scass_type: 1 * NVIDIA L20_48g
+evaluation:
+  metrics:
+  - psnr
+  - ssim
+  - mse
+  - r2
+  - elongation
+  - fsc_resolution_px
+  - edge_rise_px
+  - dice
+  - hausdorff95_px
+  - porosity_abs_error
+  - psd_wasserstein_px
+  - ssa_rel_error
+  - void_cc_fraction_abs_error
+  - percolation_mismatch
+  align_reconstruction: false
+  align_target_shape:
+  - 512
+  - 512
+  - 512
+workflow:
+  name: protocol-task-c-wucon-sm70
+  type: baseline_benchmark
+  output_dir: ./results
+  execution_mode: hybrid
+  parallelism: 11
+  continue_on_algorithm_failure: true
+runtime_profiles:
+  cpu_sirt_default:
+    backend: cpu_sirt
+    threads: 16
+    iterations: 30
+    dtype: float32
+dataset_profiles:
+  S:
+    runtime_profile: cpu_sirt_default
+  M:
+    runtime_profile: cpu_sirt_default
+  L:
+    runtime_profile: cpu_sirt_default
+policy:
+  default_runtime_profile: cpu_sirt_default
+  execution_policy:
+    max_retries: 0
+    oom_fallback_backend: cpu_sirt
+    oom_fallback_overrides:
+      use_native: false
+dflow:
+  mode: remote
+  host: https://workflows.deepmodeling.com
+  k8s_api_server: https://workflows.deepmodeling.com
+  namespace: argo
+  token: ''
+  s3_repo_key: oss-bohrium
+  s3_repo_type: oss
+  s3_repo:
+    oss: {}
+  s3_storage_client: dflow.plugins.bohrium.TiefblueClient
+  bohrium_username: ''
+  bohrium_password: ''
+  bohrium_project_id: '3407188'
+  s3_access_key: ''
+  bohrium_job_group: true
+  force_scass_for_all_algorithms: true
+  default_scass_type: c16_m32_cpu
