@@ -1,36 +1,98 @@
 {
   "version": "1.0",
-  "last_updated": "2024-01-15T00:00:00Z",
+  "last_updated": "2026-11-22T11:55:21.424597",
   "datasets": {
     "test_dataset_v1": {
       "path": "datasets/simulated/test_dataset_v1",
       "type": "simulated",
       "has_ground_truth": true,
       "size_mb": 0.0,
-      "tags": ["test", "simulated"],
+      "tags": [
+        "test",
+        "simulated"
+      ],
       "quality_metrics": {
         "snr": 0.0,
         "missing_wedge_angle": 120.0,
         "data_completeness": 0.0
       },
       "metadata_path": "datasets/simulated/test_dataset_v1/metadata.yaml"
+    },
+    "ceo2_s5_v1": {
+      "path": "datasets/experimental/private/ceo2_s5_v1",
+      "type": "experimental",
+      "has_ground_truth": false,
+      "size_mb": 0.0,
+      "tags": [
+        "experimental"
+      ],
+      "quality_metrics": {
+        "snr": 0.0,
+        "missing_wedge_angle": 0,
+        "data_completeness": 0.0
+      },
+      "metadata_path": "datasets/experimental/private/ceo2_s5_v1/metadata.yaml"
+    },
+    "resire_vesicle_v1": {
+      "path": "datasets/simulated/resire_vesicle_v1",
+      "type": "simulated",
+      "has_ground_truth": true,
+      "size_mb": 0.0,
+      "tags": [
+        "simulated"
+      ],
+      "quality_metrics": {
+        "snr": 0.0,
+        "missing_wedge_angle": 0,
+        "data_completeness": 0.0
+      },
+      "metadata_path": "datasets/simulated/resire_vesicle_v1/metadata.yaml"
+    },
+    "resire_aragonite_coral_v1": {
+      "path": "datasets/experimental/public/resire_aragonite_coral_v1",
+      "type": "experimental",
+      "has_ground_truth": false,
+      "size_mb": 0.0,
+      "tags": [
+        "experimental"
+      ],
+      "quality_metrics": {
+        "snr": 0.0,
+        "missing_wedge_angle": 0,
+        "data_completeness": 0.0
+      },
+      "metadata_path": "datasets/experimental/public/resire_aragonite_coral_v1/metadata.yaml"
+    },
+    "resire_ta_thinfilm_v1": {
+      "path": "datasets/experimental/public/resire_ta_thinfilm_v1",
+      "type": "experimental",
+      "has_ground_truth": false,
+      "size_mb": 0.0,
+      "tags": [
+        "experimental"
+      ],
+      "quality_metrics": {
+        "snr": 0.0,
+        "missing_wedge_angle": 0,
+        "data_completeness": 0.0
+      },
+      "metadata_path": "datasets/experimental/public/resire_ta_thinfilm_v1/metadata.yaml"
     }
   },
   "statistics": {
-    "total_datasets": 1,
+    "total_datasets": 5,
     "by_type": {
-      "simulated": 1,
-      "experimental": 0
+      "simulated": 2,
+      "experimental": 3
     },
     "by_ground_truth": {
-      "with_gt": 1,
-      "without_gt": 0
+      "with_gt": 2,
+      "without_gt": 3
     },
     "by_missing_wedge": {
-      "small": 0,
-      "medium": 1,
-      "large": 0
+      "small": 4,
+      "medium": 0,
+      "large": 1
     }
   }
 }
-

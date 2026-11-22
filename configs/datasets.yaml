@@ -79,6 +79,52 @@ fept_nanoparticle_v1:
   metadata_path: "./data/datasets/experimental/private/fept_nanoparticle_v1/metadata.yaml"
   description: "Experimental FePt nanoparticle dataset"
 
+ceo2_s5_v1:
+  name: "CeO2 S5"
+  type: "experimental"
+  version: "1.0"
+  has_ground_truth: false
+  path: "./data/datasets/experimental/private/ceo2_s5_v1"
+  tilt_series: "raw/tilt_series.hspy"
+  format: "hyperspy"
+  metadata_path: "./data/datasets/experimental/private/ceo2_s5_v1/metadata.yaml"
+  description: "Experimental CeO2 S5 tilt series (−70°…+68.8°, 1024², no ground truth)"
+
+# RESIRE SciRep 2023 / Zenodo 10.5281/zenodo.7819857
+resire_vesicle_v1:
+  name: "RESIRE Vesicle (simulated)"
+  type: "simulated"
+  version: "1.0"
+  has_ground_truth: true
+  path: "./data/datasets/simulated/resire_vesicle_v1"
+  tilt_series: "raw/tilt_series.hspy"
+  ground_truth: "ground_truth/volume.hspy"
+  format: "hyperspy"
+  metadata_path: "./data/datasets/simulated/resire_vesicle_v1/metadata.yaml"
+  description: "RESIRE simulated vesicle (64³, 41 proj, ±70°/3.5°, with GT)"
+
+resire_aragonite_coral_v1:
+  name: "RESIRE Aragonite Coral"
+  type: "experimental"
+  version: "1.0"
+  has_ground_truth: false
+  path: "./data/datasets/experimental/public/resire_aragonite_coral_v1"
+  tilt_series: "raw/tilt_series.hspy"
+  format: "hyperspy"
+  metadata_path: "./data/datasets/experimental/public/resire_aragonite_coral_v1/metadata.yaml"
+  description: "RESIRE aragonite coral ADF-STEM (69 proj, −60°…+76°, pre-aligned, no GT)"
+
+resire_ta_thinfilm_v1:
+  name: "RESIRE Amorphous Ta Thin Film"
+  type: "experimental"
+  version: "1.0"
+  has_ground_truth: false
+  path: "./data/datasets/experimental/public/resire_ta_thinfilm_v1"
+  tilt_series: "raw/tilt_series.hspy"
+  format: "hyperspy"
+  metadata_path: "./data/datasets/experimental/public/resire_ta_thinfilm_v1/metadata.yaml"
+  description: "RESIRE amorphous Ta thin film ADF-STEM (51 proj, pre-aligned/cropped, no GT)"
+
 # EMDB datasets (placeholder - would reference actual EMDB entries)
 emdb_example_v1:
   name: "EMDB Example"

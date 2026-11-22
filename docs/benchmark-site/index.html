@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ET-tomo Benchmark Suite</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/theme.css?v=20261121q" />
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="#home">
+      <span class="brand-mark" aria-hidden="true">E</span>
+      <span class="brand-text">
+        <span class="brand-name">ET-tomo</span>
+        <span class="brand-sub">Benchmark Suite</span>
+      </span>
+    </a>
+    <nav class="nav-links" aria-label="Primary">
+      <a href="#home" data-nav="home">Home</a>
+      <a href="#leaderboard" data-nav="leaderboard">Leaderboard</a>
+      <a href="#results" data-nav="results">Results</a>
+      <a href="#datasets" data-nav="datasets">Datasets</a>
+      <a href="#methods" data-nav="methods">Methods</a>
+    </nav>
+    <div class="header-actions">
+      <button type="button" class="theme-toggle" id="theme-toggle" aria-label="Toggle color theme" title="Toggle theme">
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <circle cx="12" cy="12" r="4" />
+          <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+        </svg>
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <path d="M21 14.5A8.5 8.5 0 1 1 9.5 3 7 7 0 0 0 21 14.5z" />
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <main>
+    <section id="home" class="hero section">
+      <p class="eyebrow">Open · Fair · Reproducible</p>
+      <h1>Materials electron tomography benchmark</h1>
+      <p class="lede">
+        Compare all reconstruction methods under shared tasks — general, missing wedge, and sparse view.
+      </p>
+      <div class="cta-row">
+        <a class="btn btn-primary" href="#leaderboard">Explore leaderboard</a>
+        <a class="btn btn-ghost" href="#methods">Read protocol</a>
+      </div>
+      <div class="chips" aria-label="Suite overview">
+        <span class="chip">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
+          general · missing wedge · sparse view
+        </span>
+        <span class="chip">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/><path d="M12 8v8M8 12h8"/></svg>
+          All algorithms per task
+        </span>
+        <span class="chip">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h5"/></svg>
+          Default dataset SM_70
+        </span>
+        <span class="chip">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
+          Audited cohorts
+        </span>
+      </div>
+    </section>
+
+    <section id="leaderboard" class="section">
+      <p class="eyebrow">01 / Rankings</p>
+      <h2>The leaderboard</h2>
+      <p class="lede">
+        Choose a task, then a dataset (or step). Every algorithm that finished that condition appears in one list.
+      </p>
+
+      <div class="tabs" id="task-tabs" role="tablist" aria-label="Tasks" style="margin:1rem 0 0.85rem"></div>
+
+      <div class="card" style="margin-bottom:1rem">
+        <div class="control-row" style="justify-content:space-between">
+          <div class="control-row" id="task-filters">
+            <span class="control-label" id="dataset-label">Dataset</span>
+            <select class="select" id="dataset-select" aria-label="Dataset"></select>
+            <span class="control-label" id="step-label" style="margin-left:0.5rem">Step</span>
+            <select class="select" id="step-select" aria-label="Angular step"></select>
+          </div>
+          <div class="toolbar" style="margin-left:0">
+            <details class="metric-filter dataset-details" id="dataset-profile-toggle" hidden>
+              <summary>Dataset details</summary>
+              <div class="dataset-profile-backdrop" id="dataset-profile-backdrop">
+                <div class="dataset-profile-panel" role="dialog" aria-modal="true" aria-label="Dataset details">
+                  <div id="dataset-profile" class="dataset-profile"></div>
+                </div>
+              </div>
+            </details>
+            <details class="metric-filter" id="metric-filter">
+              <summary>Metrics</summary>
+              <div class="metric-filter-panel">
+                <div class="metric-filter-actions">
+                  <button type="button" class="btn btn-ghost btn-small" id="metric-filter-all">All</button>
+                  <button type="button" class="btn btn-ghost btn-small" id="metric-filter-defaults">Claim</button>
+                </div>
+                <div id="metric-filter-list" class="metric-filter-list"></div>
+              </div>
+            </details>
+            <button
+              type="button"
+              class="btn btn-ghost btn-small"
+              id="lb-copy-link"
+              title="Copy the current page URL (task / dataset / step) so you can bookmark or share this exact view"
+            >Copy link</button>
+            <button type="button" class="btn btn-ghost btn-small" id="lb-download-csv">Download CSV</button>
+          </div>
+        </div>
+        <div id="config-panel" class="control-row" style="margin-top:0.85rem;color:var(--muted);font-size:0.85rem"></div>
+        <p id="task-hint" style="margin:0.75rem 0 0;color:var(--faint);font-size:0.82rem"></p>
+      </div>
+
+      <div id="lb-banner" class="banner" hidden>
+        <span class="banner-icon" aria-hidden="true">i</span>
+        <span id="lb-banner-text"></span>
+      </div>
+
+      <div class="table-shell">
+        <div class="table-scroll-bar" id="lb-scroll-bar" data-can-scroll="false">
+          <span class="scroll-hint">Drag scrollbar or use ← → to see more metrics</span>
+          <button type="button" class="btn-scroll" id="lb-scroll-left" aria-label="Scroll table left">←</button>
+          <button type="button" class="btn-scroll" id="lb-scroll-right" aria-label="Scroll table right">→</button>
+        </div>
+        <div class="table-wrap" id="lb-table-wrap" tabindex="0" aria-label="Leaderboard table">
+          <table class="lb" id="lb-table">
+            <thead></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+      <p class="empty" id="lb-empty" hidden>No rows for this task and condition.</p>
+    </section>
+
+    <section id="results" class="section">
+      <p class="eyebrow">02 / Results</p>
+      <h2>Benchmark explorer</h2>
+      <p class="lede">
+        Curves across tilt range (missing wedge) and sparse steps. Points include every algorithm in the cohort.
+      </p>
+
+      <div class="explorer-filters">
+        <div class="filter-card">
+          <span class="control-label">Task</span>
+          <div class="tabs" id="explorer-task-tabs"></div>
+        </div>
+        <div class="filter-card">
+          <span class="control-label">Metric</span>
+          <select class="select" id="explorer-metric" style="width:100%"></select>
+        </div>
+        <div class="filter-card">
+          <span class="control-label">Focus dataset</span>
+          <select class="select" id="explorer-dataset" style="width:100%"></select>
+        </div>
+      </div>
+
+      <div id="explorer-charts">
+        <div class="grid-2" id="axis-charts">
+          <div class="card chart-card">
+            <h3 id="chart-w-title">Metric vs tilt range</h3>
+            <p class="hint">Missing-wedge axis · 1° step</p>
+            <div class="chart-box" id="chart-axis-w"></div>
+          </div>
+          <div class="card chart-card">
+            <h3 id="chart-s-title">Metric vs sparse step</h3>
+            <p class="hint">Sparse-view axis · SM_70</p>
+            <div class="chart-box" id="chart-axis-s"></div>
+          </div>
+        </div>
+        <div class="card chart-card" style="margin-top:1rem" id="pareto-card">
+          <h3>Pareto · fidelity vs infer time</h3>
+          <p class="hint">Diagnostic only · not a cross-family ranking · focus dataset</p>
+          <div class="chart-box" id="chart-pareto"></div>
+        </div>
+      </div>
+
+      <div class="explorer-actions">
+        <button
+          type="button"
+          class="btn btn-ghost btn-small"
+          id="ex-copy-link"
+          title="Copy the current page URL so you can bookmark or share this exact view"
+        >Copy link</button>
+        <button type="button" class="btn btn-ghost btn-small" id="ex-download-csv">Download CSV</button>
+        <p class="note">Missing values indicate failed, incomplete, or filtered runs — not invented scores.</p>
+      </div>
+    </section>
+
+    <section id="datasets" class="section">
+      <p class="eyebrow">03 / Datasets</p>
+      <h2>Data you can verify</h2>
+      <p class="lede">
+        Organised by sample. Each card is one physical phantom or specimen; tilt crops and sparse steps are conditions under that sample. Leaderboard ids such as SM_70 label conditions of the aligned-model phantom.
+      </p>
+
+      <div class="section-kicker">
+        <span class="dot" aria-hidden="true"></span>
+        <strong style="color:var(--text)">Simulated</strong>
+        <span>— Phantoms with known ground truth; conditions feed missing-wedge and sparse-view tasks.</span>
+      </div>
+      <div id="dataset-grid" class="dataset-sample-list"></div>
+
+      <div class="banner" style="margin-top:1rem">
+        <span class="banner-icon" aria-hidden="true">i</span>
+        <span>
+          Historical YAML field <code>missing_wedge_angle</code> is the tilt limit α, not the wedge.
+          Reported wedge = 180 − 2α.
+        </span>
+      </div>
+
+      <div class="section-kicker">
+        <span class="dot muted" aria-hidden="true"></span>
+        <strong style="color:var(--text)">Experimental</strong>
+        <span>— Real specimens; never mixed into simulated GT leaderboard scores.</span>
+      </div>
+      <div id="dataset-grid-experimental" class="dataset-sample-list"></div>
+
+      <div id="sample-detail-backdrop" class="sample-detail-backdrop" hidden>
+        <div class="sample-detail-panel" role="dialog" aria-modal="true" aria-labelledby="sample-detail-title">
+          <div class="sample-detail-head">
+            <h3 id="sample-detail-title">Sample</h3>
+            <button type="button" class="btn btn-ghost btn-small" id="sample-detail-close" aria-label="Close">Close</button>
+          </div>
+          <div id="sample-detail-body" class="sample-detail-body"></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="methods" class="section">
+      <p class="eyebrow">04 / Methods</p>
+      <h2>How we compare</h2>
+      <p class="lede">
+        Compare reconstruction quality under controlled missing-wedge and sparse-view conditions.
+        One table may list every algorithm; “best” is tagged only on claim metrics, and only within each method family.
+      </p>
+
+      <div class="card" style="margin-top:1rem;overflow:auto">
+        <h3 style="margin:0 0 0.75rem;font-size:1rem">Claim metrics by family</h3>
+        <table class="scheme-table">
+          <thead>
+            <tr>
+              <th>Family</th>
+              <th>Examples</th>
+              <th>Primary claim</th>
+              <th>Not a claim</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>classical</td>
+              <td>WBP, FBP, SIRT, GENFIRE</td>
+              <td>Affine SSIM / CC vs GT</td>
+              <td>Raw PSNR alone; wall-clock ranking</td>
+            </tr>
+            <tr>
+              <td>TV regularized iterative</td>
+              <td>TVM</td>
+              <td>Affine SSIM / CC (+ morphology when fixed)</td>
+              <td>Train+infer wall-clock vs classical</td>
+            </tr>
+            <tr>
+              <td>grey prior</td>
+              <td>DART, TVR-DART</td>
+              <td>Affine SSIM / CC + Dice</td>
+              <td>Blind “overall champion” vs Track A</td>
+            </tr>
+            <tr>
+              <td>self-supervised</td>
+              <td>IsoNet, DeepDeWedge, WUCON</td>
+              <td>Wedge-out CC + wedge-in CC</td>
+              <td>Global PSNR as sole score</td>
+            </tr>
+          </tbody>
+        </table>
+        <p style="margin:0.85rem 0 0;color:var(--faint);font-size:0.82rem">
+          Tasks: <strong>general</strong> = SM_70 @ 1° · <strong>missing wedge</strong> = Axis W (tilt) · <strong>sparse view</strong> = Axis S (step).
+          Experimental / no-GT samples use held-out reprojection — never treat ±70° WBP/SIRT as GT.
+        </p>
+      </div>
+
+      <div class="grid-3" style="margin-top:1rem">
+        <div class="card method-card">
+          <h3>What the board sorts on</h3>
+          <p>
+            Default columns and sort use the task’s claim metrics (protocol_* when audited; otherwise provisional SSIM/Dice).
+            PSNR and runtime stay under Metrics and never receive “best” tags.
+          </p>
+        </div>
+        <div class="card method-card">
+          <h3>Timing (diagnostic)</h3>
+          <p>
+            Runtime is optional and never tags “best”.
+            Classical iterate, TV/DART loops, and learning train vs infer are not commensurate — compare within family or split train/infer when recorded.
+          </p>
+        </div>
+        <div class="card method-card">
+          <h3>No single champion</h3>
+          <p>
+            No overall score across tasks or families.
+            Failures remain as rows. Protocol details:
+            <a href="../ET_TOMO_BENCHMARK_PROTOCOL.md">ET_TOMO_BENCHMARK_PROTOCOL.md</a>.
+          </p>
+        </div>
+      </div>
+      <p style="margin-top:1.25rem;color:var(--muted);font-size:0.9rem">
+        Machine-readable cohort:
+        <a href="data/cohorts.json">data/cohorts.json</a>
+      </p>
+    </section>
+  </main>
+
+  <footer class="footer">
+    ET-tomo Benchmark Suite · tasks do not share a champion
+  </footer>
+
+  <script src="assets/app.js?v=20261121q" defer></script>
+</body>
+</html>

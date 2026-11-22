@@ -1,0 +1,285 @@
+# RESIRE amorphous Ta thin film (experimental, no GT)
+# -------------------------------------------------------------------------
+# Dataset:
+#   data/datasets/experimental/public/resire_ta_thinfilm_v1
+#   tilt (51, 425, 406), ≈−69.4°…+66.4°
+#
+# Protocol role: experimental / no-GT; extended-object missing wedge.
+# Algorithms: classical + iterative + DL usable without GT grey levels.
+# DART / TVR-DART / RESIRE left disabled (need discrete prior / native image).
+#
+# Usage:
+#   et-dflow benchmark configs/tvm_hybrid_resire_ta_thinfilm.yaml --output-dir ./results
+
+datasets:
+  resire_ta_thinfilm:
+    path: "./data/datasets/experimental/public/resire_ta_thinfilm_v1/raw/tilt_series.hspy"
+    format: "hyperspy"
+    metadata:
+      dataset_id: "resire_ta_thinfilm_v1"
+      type: "experimental"
+      has_ground_truth: false
+      tilt_range: [-69.39653, 66.39874]
+      missing_wedge_angle: 69.39653
+      missing_wedge_deg: 44.20473
+      angular_step_deg: 2.6008
+      num_projections: 51
+      projection_shape: [51, 425, 406]
+      protocol_task: "experimental_no_gt"
+      source: "RESIRE Zenodo 10.5281/zenodo.7819857"
+
+algorithms:
+  wbp:
+    enabled: true
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/wbp:20261019v1"
+    parameters:
+      filter_type: "ramp"
+      filter_cutoff: 1.0
+      Nrecon: 425
+      tilt_range: [-69.39653, 66.39874]
+    resources:
+      cpu: 8
+      memory: "32Gi"
+      gpu: false
+      scass_type: "c16_m32_cpu"
+
+  sirt:
+    enabled: false
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/sirt:20261019"
+    parameters:
+      backend: "cpu_sirt"
+      iterations: 50
+      relaxation_factor: 0.5
+      update_method: "landweber"
+      dtype: "float32"
+      tilt_range: [-69.39653, 66.39874]
+    resources:
+      cpu: 16
+      memory: "64Gi"
+      gpu: false
+      scass_type: "c32_m64_cpu"
+
+  astra_fbp:
+    enabled: true
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/astra:20261017"
+    parameters:
+      use_native: true
+      allow_placeholder: false
+      astra_algorithm: "FBP_CUDA"
+      filter_type: "ram-lak"
+      tilt_range: [-69.39653, 66.39874]
+    resources:
+      cpu: 8
+      memory: "32Gi"
+      gpu: 1
+      scass_type: "c16_m62_1 * NVIDIA T4"
+
+  astra_sirt:
+    enabled: true
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/astra:20261017"
+    parameters:
+      use_native: true
+      allow_placeholder: false
+      astra_algorithm: "SIRT3D_CUDA"
+      astra_niter: 50
+      astra_vol_shape: [425, 406, 425]
+      tilt_range: [-69.39653, 66.39874]
+    resources:
+      cpu: 8
+      memory: "48Gi"
+      gpu: 1
+      scass_type: "1 * NVIDIA L20_48g"
+
+  tigre_sirt:
+    enabled: true
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/tigre:20261027"
+    parameters:
+      use_native: true
+      allow_placeholder: false
+      tigre_algorithm: "sirt"
+      tigre_niter: 50
+      nVoxel: [425, 425, 406]
+      tilt_range: [-69.39653, 66.39874]
+    resources:
+      cpu: 8
+      memory: "48Gi"
+      gpu: 1
+      scass_type: "1 * NVIDIA L20_48g"
+
+  tvm:
+    enabled: true
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/tvm:20261107"
+    parameters:
+      use_native: true
+      allow_placeholder: false
+      tvm_niter: 100
+      tvm_tviter: 40
+      tvm_alpha: 0.01
+      nVoxel: [425, 425, 406]
+      tilt_range: [-69.39653, 66.39874]
+    resources:
+      cpu: 8
+      memory: "64Gi"
+      gpu: 1
+      scass_type: "1 * NVIDIA L20_48g"
+
+  dart:
+    enabled: false
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/discrete:20261107"
+    parameters:
+      use_native: true
+      allow_placeholder: false
+      discrete_method: "dart"
+      dart_gray_levels: [0.0, 1.0]
+      tilt_range: [-69.39653, 66.39874]
+    resources:
+      cpu: 8
+      memory: "48Gi"
+      gpu: 1
+      scass_type: "1 * NVIDIA L20_48g"
+
+  tvr_dart:
+    enabled: false
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/discrete:20261107"
+    parameters:
+      use_native: true
+      allow_placeholder: false
+      discrete_method: "tvr_dart"
+      tvr_n_gray: 2
+      tilt_range: [-69.39653, 66.39874]
+    resources:
+      cpu: 8
+      memory: "48Gi"
+      gpu: 1
+      scass_type: "1 * NVIDIA L20_48g"
+
+  genfire:
+    enabled: true
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/genfire:20261111"
+    parameters:
+      use_native: true
+      allow_placeholder: false
+      genfire_num_iterations: 100
+      genfire_oversampling_ratio: 1
+      genfire_gridding_method: "FFT"
+      tilt_range: [-69.39653, 66.39874]
+    resources:
+      cpu: 16
+      memory: "96Gi"
+      gpu: false
+      scass_type: "c24_m96_cpu"
+
+  deepdewedge:
+    enabled: true
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/deepdewedge:20261104"
+    parameters:
+      use_native: true
+      allow_placeholder: false
+      ddw_pipeline: true
+      ddw_num_epochs: 1000
+      tilt_range: [-69.39653, 66.39874]
+    resources:
+      cpu: 8
+      memory: "64Gi"
+      gpu: 1
+      scass_type: "1 * NVIDIA L20_48g"
+
+  isonet:
+    enabled: true
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/isonet:20261111"
+    parameters:
+      use_native: true
+      allow_placeholder: false
+      isonet_pipeline: true
+      isonet_pixel_size: 10.0
+      isonet_iterations: 5
+      isonet_number_subtomos: 100
+      tilt_range: [-69.39653, 66.39874]
+    resources:
+      cpu: 8
+      memory: "64Gi"
+      gpu: 1
+      scass_type: "1 * NVIDIA L20_48g"
+
+  wucon:
+    enabled: true
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/wucon:20261111"
+    parameters:
+      use_native: true
+      allow_placeholder: false
+      wucon_pipeline: true
+      wucon_recon_subset: false
+      wucon_n_epochs_mid: 50
+      wucon_n_epochs_all: 20
+      wucon_case_id: 90
+      tilt_range: [-69.39653, 66.39874]
+    resources:
+      cpu: 8
+      memory: "64Gi"
+      gpu: 1
+      scass_type: "1 * NVIDIA L20_48g"
+
+  resire:
+    enabled: false
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/resire:latest"
+    parameters:
+      use_native: true
+      allow_placeholder: false
+      iterations: 50
+      tilt_range: [-69.39653, 66.39874]
+    resources:
+      cpu: 8
+      memory: "48Gi"
+      gpu: 1
+      scass_type: "1 * NVIDIA L20_48g"
+
+evaluation:
+  metrics: []
+  align_reconstruction: false
+
+workflow:
+  name: "resire-ta-thinfilm-hybrid"
+  type: "baseline_benchmark"
+  output_dir: "./results"
+  execution_mode: "hybrid"
+  parallelism: 10
+  continue_on_algorithm_failure: true
+
+runtime_profiles:
+  cpu_sirt_default:
+    backend: "cpu_sirt"
+    threads: 16
+    iterations: 50
+    dtype: "float32"
+
+dataset_profiles:
+  S:
+    runtime_profile: "cpu_sirt_default"
+  M:
+    runtime_profile: "cpu_sirt_default"
+  L:
+    runtime_profile: "cpu_sirt_default"
+
+policy:
+  default_runtime_profile: "cpu_sirt_default"
+  execution_policy:
+    max_retries: 0
+
+dflow:
+  mode: "remote"
+  host: "https://workflows.deepmodeling.com"
+  k8s_api_server: "https://workflows.deepmodeling.com"
+  namespace: "argo"
+  token: ""
+  s3_repo_key: "oss-bohrium"
+  s3_repo_type: "oss"
+  s3_repo:
+    oss: {}
+  s3_storage_client: "dflow.plugins.bohrium.TiefblueClient"
+  bohrium_username: ""
+  bohrium_password: ""
+  bohrium_project_id: "3407188"
+  s3_access_key: ""
+  bohrium_job_group: true
+  force_scass_for_all_algorithms: true
+  default_scass_type: "c16_m32_cpu"

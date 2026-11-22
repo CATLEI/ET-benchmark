@@ -1,0 +1,309 @@
+# RESIRE vesicle (simulated, with GT) — general / missing-wedge track
+# -------------------------------------------------------------------------
+# Dataset:
+#   data/datasets/simulated/resire_vesicle_v1
+#   tilt (41, 64, 64), ±70° / 3.5°, GT 64³ (continuous intensities)
+#
+# Protocol role:
+#   - general (GT metrics)
+#   - missing wedge (±70°)
+# Not a sparse-view sweep (only one angular step).
+#
+# Algorithms: same usable set as aligned_model SM70 hybrid, scaled to 64³.
+# DART / TVR-DART disabled: GT is continuous (~17k unique values), not discrete.
+# RESIRE native image not yet on Bohrium registry → left disabled.
+#
+# Usage:
+#   et-dflow benchmark configs/wbp_sirt_hybrid_resire_vesicle.yaml --output-dir ./results
+
+datasets:
+  resire_vesicle:
+    path: "./data/datasets/simulated/resire_vesicle_v1/raw/tilt_series.hspy"
+    format: "hyperspy"
+    ground_truth_path: "./data/datasets/simulated/resire_vesicle_v1/ground_truth/volume.hspy"
+    metadata:
+      dataset_id: "resire_vesicle_v1"
+      type: "simulated"
+      has_ground_truth: true
+      variant: "resire_vesicle"
+      tilt_range: [-70.0, 70.0]
+      missing_wedge_angle: 70.0
+      missing_wedge_deg: 40.0
+      angular_step_deg: 3.5
+      num_projections: 41
+      projection_shape: [41, 64, 64]
+      gt_shape: [64, 64, 64]
+      protocol_task: "general+missing_wedge"
+      source: "RESIRE Zenodo 10.5281/zenodo.7819857"
+
+algorithms:
+  wbp:
+    enabled: true
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/wbp:20261019v1"
+    parameters:
+      filter_type: "ramp"
+      filter_cutoff: 1.0
+      Nrecon: 64
+      tilt_range: [-70.0, 70.0]
+    resources:
+      cpu: 4
+      memory: "8Gi"
+      gpu: false
+      scass_type: "c8_m32_cpu"
+
+  sirt:
+    enabled: false
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/sirt:20261019"
+    parameters:
+      backend: "cpu_sirt"
+      iterations: 50
+      relaxation_factor: 0.5
+      update_method: "landweber"
+      dtype: "float32"
+      tilt_range: [-70.0, 70.0]
+    resources:
+      cpu: 8
+      memory: "16Gi"
+      gpu: false
+      scass_type: "c16_m32_cpu"
+
+  astra_fbp:
+    enabled: true
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/astra:20261017"
+    parameters:
+      use_native: true
+      allow_placeholder: false
+      astra_algorithm: "FBP_CUDA"
+      filter_type: "ram-lak"
+      tilt_range: [-70.0, 70.0]
+    resources:
+      cpu: 4
+      memory: "16Gi"
+      gpu: 1
+      scass_type: "c16_m62_1 * NVIDIA T4"
+
+  astra_sirt:
+    enabled: true
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/astra:20261017"
+    parameters:
+      use_native: true
+      allow_placeholder: false
+      astra_algorithm: "SIRT3D_CUDA"
+      astra_niter: 50
+      astra_vol_shape: [64, 64, 64]
+      tilt_range: [-70.0, 70.0]
+    resources:
+      cpu: 4
+      memory: "16Gi"
+      gpu: 1
+      scass_type: "c16_m62_1 * NVIDIA T4"
+
+  tigre_sirt:
+    enabled: true
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/tigre:20261027"
+    parameters:
+      use_native: true
+      allow_placeholder: false
+      tigre_algorithm: "sirt"
+      tigre_niter: 50
+      nVoxel: [64, 64, 64]
+      tilt_range: [-70.0, 70.0]
+    resources:
+      cpu: 4
+      memory: "16Gi"
+      gpu: 1
+      scass_type: "c16_m62_1 * NVIDIA T4"
+
+  tvm:
+    enabled: true
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/tvm:20261107"
+    parameters:
+      use_native: true
+      allow_placeholder: false
+      tvm_niter: 50
+      tvm_tviter: 10
+      tvm_alpha: 0.001
+      nVoxel: [64, 64, 64]
+      tilt_range: [-70.0, 70.0]
+    resources:
+      cpu: 4
+      memory: "16Gi"
+      gpu: 1
+      scass_type: "c16_m62_1 * NVIDIA T4"
+
+  # Continuous GT — discrete grey-level methods are a poor fit; keep off.
+  dart:
+    enabled: false
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/discrete:20261107"
+    parameters:
+      use_native: true
+      allow_placeholder: false
+      discrete_method: "dart"
+      dart_gray_levels: [0.0, 1.0]
+      dart_algebraic: "SIRT_CUDA"
+      dart_init_iters: 40
+      dart_outer_iters: 20
+      dart_inner_iters: 5
+      tilt_range: [-70.0, 70.0]
+    resources:
+      cpu: 4
+      memory: "16Gi"
+      gpu: 1
+      scass_type: "c16_m62_1 * NVIDIA T4"
+
+  tvr_dart:
+    enabled: false
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/discrete:20261107"
+    parameters:
+      use_native: true
+      allow_placeholder: false
+      discrete_method: "tvr_dart"
+      tvr_n_gray: 2
+      tvr_lambda: 5
+      tvr_niter: 40
+      tilt_range: [-70.0, 70.0]
+    resources:
+      cpu: 4
+      memory: "16Gi"
+      gpu: 1
+      scass_type: "c16_m62_1 * NVIDIA T4"
+
+  genfire:
+    enabled: true
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/genfire:20261111"
+    parameters:
+      use_native: true
+      allow_placeholder: false
+      genfire_num_iterations: 100
+      genfire_oversampling_ratio: 2
+      genfire_gridding_method: "FFT"
+      tilt_range: [-70.0, 70.0]
+    resources:
+      cpu: 8
+      memory: "32Gi"
+      gpu: false
+      scass_type: "c16_m32_cpu"
+
+  deepdewedge:
+    enabled: true
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/deepdewedge:20261104"
+    parameters:
+      use_native: true
+      allow_placeholder: false
+      ddw_pipeline: true
+      ddw_num_epochs: 200
+      tilt_range: [-70.0, 70.0]
+    resources:
+      cpu: 8
+      memory: "32Gi"
+      gpu: 1
+      scass_type: "1 * NVIDIA L20_48g"
+
+  isonet:
+    enabled: true
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/isonet:20261111"
+    parameters:
+      use_native: true
+      allow_placeholder: false
+      isonet_pipeline: true
+      isonet_pixel_size: 10.0
+      isonet_iterations: 5
+      isonet_number_subtomos: 50
+      tilt_range: [-70.0, 70.0]
+    resources:
+      cpu: 8
+      memory: "32Gi"
+      gpu: 1
+      scass_type: "1 * NVIDIA L20_48g"
+
+  wucon:
+    enabled: true
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/wucon:20261111"
+    parameters:
+      use_native: true
+      allow_placeholder: false
+      wucon_pipeline: true
+      wucon_recon_subset: false
+      wucon_n_epochs_mid: 30
+      wucon_n_epochs_all: 15
+      wucon_case_id: 90
+      tilt_range: [-70.0, 70.0]
+    resources:
+      cpu: 8
+      memory: "32Gi"
+      gpu: 1
+      scass_type: "1 * NVIDIA L20_48g"
+
+  # Native RESIREAlgorithm / Bohrium image not wired yet (adapter falls back
+  # to placeholder). Enable after a prod URI lands.
+  resire:
+    enabled: false
+    docker_image: "registry.dp.tech/dptech/dp/native/prod-23359/resire:latest"
+    parameters:
+      use_native: true
+      allow_placeholder: false
+      iterations: 50
+      tilt_range: [-70.0, 70.0]
+    resources:
+      cpu: 4
+      memory: "16Gi"
+      gpu: 1
+      scass_type: "c16_m62_1 * NVIDIA T4"
+
+evaluation:
+  metrics:
+    - "psnr"
+    - "ssim"
+    - "mse"
+    - "r2"
+    - "cc"
+    - "fsc_resolution_px"
+    - "edge_rise_px"
+  align_reconstruction: false
+
+workflow:
+  name: "resire-vesicle-hybrid"
+  type: "baseline_benchmark"
+  output_dir: "./results"
+  execution_mode: "hybrid"
+  parallelism: 10
+  continue_on_algorithm_failure: true
+
+runtime_profiles:
+  cpu_sirt_default:
+    backend: "cpu_sirt"
+    threads: 8
+    iterations: 50
+    dtype: "float32"
+
+dataset_profiles:
+  S:
+    runtime_profile: "cpu_sirt_default"
+  M:
+    runtime_profile: "cpu_sirt_default"
+  L:
+    runtime_profile: "cpu_sirt_default"
+
+policy:
+  default_runtime_profile: "cpu_sirt_default"
+  execution_policy:
+    max_retries: 0
+
+dflow:
+  mode: "remote"
+  host: "https://workflows.deepmodeling.com"
+  k8s_api_server: "https://workflows.deepmodeling.com"
+  namespace: "argo"
+  token: ""
+  s3_repo_key: "oss-bohrium"
+  s3_repo_type: "oss"
+  s3_repo:
+    oss: {}
+  s3_storage_client: "dflow.plugins.bohrium.TiefblueClient"
+  bohrium_username: ""
+  bohrium_password: ""
+  bohrium_project_id: "3407188"
+  s3_access_key: ""
+  bohrium_job_group: true
+  force_scass_for_all_algorithms: true
+  default_scass_type: "c16_m32_cpu"

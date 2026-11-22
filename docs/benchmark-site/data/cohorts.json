@@ -1,0 +1,1290 @@
+{
+  "protocol_version": "frozen-v1",
+  "tasks": [
+    "general",
+    "missing wedge",
+    "sparse view"
+  ],
+  "primary_by_task": {
+    "general": [
+      "protocol_affine_ssim",
+      "protocol_affine_cc",
+      "ssim",
+      "psnr",
+      "dice"
+    ],
+    "missing wedge": [
+      "protocol_affine_ssim",
+      "protocol_affine_cc",
+      "protocol_wedge_out_cc",
+      "protocol_wedge_in_cc",
+      "ssim",
+      "psnr"
+    ],
+    "sparse view": [
+      "protocol_affine_ssim",
+      "protocol_affine_cc",
+      "ssim",
+      "psnr",
+      "dice"
+    ]
+  },
+  "runs": [
+    {
+      "path": "/Users/leilei/work/ET/ET-benchmark/results/aligned-model-sm70",
+      "name": "aligned-model-sm70",
+      "n_algorithms": 10
+    },
+    {
+      "path": "/Users/leilei/work/ET/ET-benchmark/results/aligned-model-sm70-20261110",
+      "name": "aligned-model-sm70-20261110",
+      "n_algorithms": 9
+    },
+    {
+      "path": "/Users/leilei/work/ET/ET-benchmark/results/aligned-model-sm70-20261111",
+      "name": "aligned-model-sm70-20261111",
+      "n_algorithms": 2
+    },
+    {
+      "path": "/Users/leilei/work/ET/ET-benchmark/results/aligned-model-sm70-isonet",
+      "name": "aligned-model-sm70-isonet",
+      "n_algorithms": 1
+    }
+  ],
+  "dataset_menu": [
+    {
+      "id": "SM_80",
+      "tilt_abs": 80,
+      "label": "SM_80",
+      "audited": false
+    },
+    {
+      "id": "SM_70",
+      "tilt_abs": 70,
+      "label": "SM_70",
+      "audited": false
+    },
+    {
+      "id": "SM_60",
+      "tilt_abs": 60,
+      "label": "SM_60",
+      "audited": false
+    },
+    {
+      "id": "SM_50",
+      "tilt_abs": 50,
+      "label": "SM_50",
+      "audited": false
+    },
+    {
+      "id": "SM_40",
+      "tilt_abs": 40,
+      "label": "SM_40",
+      "audited": false
+    }
+  ],
+  "dataset_profiles": {
+    "SM_40": {
+      "id": "SM_40",
+      "name": "aligned_model_sm40_v1",
+      "folder": "data/datasets/simulated/aligned_model_sm40_v1",
+      "type": "simulated",
+      "has_ground_truth": true,
+      "tilt_min": -40.0,
+      "tilt_max": 40.0,
+      "missing_wedge_deg": 100.0,
+      "angular_step_deg": 1.0,
+      "num_projections": 81,
+      "projection_shape": null,
+      "tilt_angles": {
+        "count": 81,
+        "min": -40.0,
+        "max": 40.0,
+        "median_step_deg": 1.0,
+        "mean_step_deg": 1.0
+      },
+      "gt_stats": {
+        "source": "docs/figures/gt_sm70_analysis.json",
+        "shape": [
+          512,
+          512,
+          512
+        ],
+        "dtype": "float32",
+        "nbytes_mb": 536.870912,
+        "intensity": {
+          "min": 0.0,
+          "max": 255.0,
+          "mean": 43.321456387639046,
+          "std": 95.76128025095448,
+          "median": 0.0,
+          "p01": 0.0,
+          "p99": 255.0,
+          "n_unique": 2,
+          "is_near_binary": true,
+          "zero_frac": 0.8301119357347488,
+          "nnz": 22801990
+        },
+        "morphology": {
+          "threshold": 127.5,
+          "solid_voxels": 22801990,
+          "solid_fraction_global_incl_background": 0.16988806426525116,
+          "porosity_global_incl_background": 0.8301119357347488,
+          "solid_fraction_in_sphere": 0.5824684143849492,
+          "porosity_in_sphere": 0.41753158561505077,
+          "n_solid_components": 8,
+          "n_pore_components_in_sphere": 9930,
+          "mean_pore_radius_edt": 3.341786157219519,
+          "mean_wall_thickness_edt": 4.200785283877804
+        },
+        "geometry": {
+          "elongation_sqrt_lmax_lmin": 1.0235632221758957,
+          "axis_std": [
+            93.06831551301883,
+            94.26675657485228,
+            95.26130490898846
+          ]
+        },
+        "edge": {
+          "mean_grad_on_surface": 166.1143823834114,
+          "edge_rise_10_90_px": 216.0,
+          "contrast": 254.99998474121094
+        },
+        "figure": "docs/figures/gt_sm70_analysis.png"
+      },
+      "note": "GT intensity/morphology from aligned_model SM70 analysis; same phantom family across SM_* tilt crops."
+    },
+    "SM_50": {
+      "id": "SM_50",
+      "name": "aligned_model_sm50",
+      "folder": "data/datasets/simulated/aligned_model_sm50_v1",
+      "type": "simulated",
+      "has_ground_truth": true,
+      "tilt_min": -50.0,
+      "tilt_max": 50.0,
+      "missing_wedge_deg": 80.0,
+      "angular_step_deg": 1.0,
+      "num_projections": 101,
+      "projection_shape": [
+        101,
+        512,
+        513
+      ],
+      "tilt_angles": {
+        "count": 101,
+        "min": -50.0,
+        "max": 50.0,
+        "median_step_deg": 1.0,
+        "mean_step_deg": 1.0
+      },
+      "gt_stats": {
+        "source": "docs/figures/gt_sm70_analysis.json",
+        "shape": [
+          512,
+          512,
+          512
+        ],
+        "dtype": "float32",
+        "nbytes_mb": 536.870912,
+        "intensity": {
+          "min": 0.0,
+          "max": 255.0,
+          "mean": 43.321456387639046,
+          "std": 95.76128025095448,
+          "median": 0.0,
+          "p01": 0.0,
+          "p99": 255.0,
+          "n_unique": 2,
+          "is_near_binary": true,
+          "zero_frac": 0.8301119357347488,
+          "nnz": 22801990
+        },
+        "morphology": {
+          "threshold": 127.5,
+          "solid_voxels": 22801990,
+          "solid_fraction_global_incl_background": 0.16988806426525116,
+          "porosity_global_incl_background": 0.8301119357347488,
+          "solid_fraction_in_sphere": 0.5824684143849492,
+          "porosity_in_sphere": 0.41753158561505077,
+          "n_solid_components": 8,
+          "n_pore_components_in_sphere": 9930,
+          "mean_pore_radius_edt": 3.341786157219519,
+          "mean_wall_thickness_edt": 4.200785283877804
+        },
+        "geometry": {
+          "elongation_sqrt_lmax_lmin": 1.0235632221758957,
+          "axis_std": [
+            93.06831551301883,
+            94.26675657485228,
+            95.26130490898846
+          ]
+        },
+        "edge": {
+          "mean_grad_on_surface": 166.1143823834114,
+          "edge_rise_10_90_px": 216.0,
+          "contrast": 254.99998474121094
+        },
+        "figure": "docs/figures/gt_sm70_analysis.png"
+      },
+      "note": "GT intensity/morphology from aligned_model SM70 analysis; same phantom family across SM_* tilt crops."
+    },
+    "SM_60": {
+      "id": "SM_60",
+      "name": "aligned_model_sm60",
+      "folder": "data/datasets/simulated/aligned_model_sm60_v1",
+      "type": "simulated",
+      "has_ground_truth": true,
+      "tilt_min": -60.0,
+      "tilt_max": 60.0,
+      "missing_wedge_deg": 60.0,
+      "angular_step_deg": 1.0,
+      "num_projections": 121,
+      "projection_shape": [
+        121,
+        512,
+        513
+      ],
+      "tilt_angles": {
+        "count": 121,
+        "min": -60.0,
+        "max": 60.0,
+        "median_step_deg": 1.0,
+        "mean_step_deg": 1.0
+      },
+      "gt_stats": {
+        "source": "docs/figures/gt_sm70_analysis.json",
+        "shape": [
+          512,
+          512,
+          512
+        ],
+        "dtype": "float32",
+        "nbytes_mb": 536.870912,
+        "intensity": {
+          "min": 0.0,
+          "max": 255.0,
+          "mean": 43.321456387639046,
+          "std": 95.76128025095448,
+          "median": 0.0,
+          "p01": 0.0,
+          "p99": 255.0,
+          "n_unique": 2,
+          "is_near_binary": true,
+          "zero_frac": 0.8301119357347488,
+          "nnz": 22801990
+        },
+        "morphology": {
+          "threshold": 127.5,
+          "solid_voxels": 22801990,
+          "solid_fraction_global_incl_background": 0.16988806426525116,
+          "porosity_global_incl_background": 0.8301119357347488,
+          "solid_fraction_in_sphere": 0.5824684143849492,
+          "porosity_in_sphere": 0.41753158561505077,
+          "n_solid_components": 8,
+          "n_pore_components_in_sphere": 9930,
+          "mean_pore_radius_edt": 3.341786157219519,
+          "mean_wall_thickness_edt": 4.200785283877804
+        },
+        "geometry": {
+          "elongation_sqrt_lmax_lmin": 1.0235632221758957,
+          "axis_std": [
+            93.06831551301883,
+            94.26675657485228,
+            95.26130490898846
+          ]
+        },
+        "edge": {
+          "mean_grad_on_surface": 166.1143823834114,
+          "edge_rise_10_90_px": 216.0,
+          "contrast": 254.99998474121094
+        },
+        "figure": "docs/figures/gt_sm70_analysis.png"
+      },
+      "note": "GT intensity/morphology from aligned_model SM70 analysis; same phantom family across SM_* tilt crops."
+    },
+    "SM_70": {
+      "id": "SM_70",
+      "name": "aligned_model_sm70",
+      "folder": "data/datasets/simulated/aligned_model_sm70_v1",
+      "type": "simulated",
+      "has_ground_truth": true,
+      "tilt_min": -70.0,
+      "tilt_max": 70.0,
+      "missing_wedge_deg": 40.0,
+      "angular_step_deg": 1.0,
+      "num_projections": 141,
+      "projection_shape": [
+        141,
+        512,
+        513
+      ],
+      "tilt_angles": {
+        "count": 141,
+        "min": -70.0,
+        "max": 70.0,
+        "median_step_deg": 1.0,
+        "mean_step_deg": 1.0
+      },
+      "gt_stats": {
+        "source": "docs/figures/gt_sm70_analysis.json",
+        "shape": [
+          512,
+          512,
+          512
+        ],
+        "dtype": "float32",
+        "nbytes_mb": 536.870912,
+        "intensity": {
+          "min": 0.0,
+          "max": 255.0,
+          "mean": 43.321456387639046,
+          "std": 95.76128025095448,
+          "median": 0.0,
+          "p01": 0.0,
+          "p99": 255.0,
+          "n_unique": 2,
+          "is_near_binary": true,
+          "zero_frac": 0.8301119357347488,
+          "nnz": 22801990
+        },
+        "morphology": {
+          "threshold": 127.5,
+          "solid_voxels": 22801990,
+          "solid_fraction_global_incl_background": 0.16988806426525116,
+          "porosity_global_incl_background": 0.8301119357347488,
+          "solid_fraction_in_sphere": 0.5824684143849492,
+          "porosity_in_sphere": 0.41753158561505077,
+          "n_solid_components": 8,
+          "n_pore_components_in_sphere": 9930,
+          "mean_pore_radius_edt": 3.341786157219519,
+          "mean_wall_thickness_edt": 4.200785283877804
+        },
+        "geometry": {
+          "elongation_sqrt_lmax_lmin": 1.0235632221758957,
+          "axis_std": [
+            93.06831551301883,
+            94.26675657485228,
+            95.26130490898846
+          ]
+        },
+        "edge": {
+          "mean_grad_on_surface": 166.1143823834114,
+          "edge_rise_10_90_px": 216.0,
+          "contrast": 254.99998474121094
+        },
+        "figure": "docs/figures/gt_sm70_analysis.png"
+      },
+      "note": "GT intensity/morphology from aligned_model SM70 analysis; same phantom family across SM_* tilt crops."
+    },
+    "SM_80": {
+      "id": "SM_80",
+      "name": "aligned_model_sm80",
+      "folder": "data/datasets/simulated/aligned_model_sm80_v1",
+      "type": "simulated",
+      "has_ground_truth": true,
+      "tilt_min": -80.0,
+      "tilt_max": 80.0,
+      "missing_wedge_deg": 20.0,
+      "angular_step_deg": 1.0,
+      "num_projections": 161,
+      "projection_shape": [
+        161,
+        512,
+        513
+      ],
+      "tilt_angles": {
+        "count": 161,
+        "min": -80.0,
+        "max": 80.0,
+        "median_step_deg": 1.0,
+        "mean_step_deg": 1.0
+      },
+      "gt_stats": {
+        "source": "docs/figures/gt_sm70_analysis.json",
+        "shape": [
+          512,
+          512,
+          512
+        ],
+        "dtype": "float32",
+        "nbytes_mb": 536.870912,
+        "intensity": {
+          "min": 0.0,
+          "max": 255.0,
+          "mean": 43.321456387639046,
+          "std": 95.76128025095448,
+          "median": 0.0,
+          "p01": 0.0,
+          "p99": 255.0,
+          "n_unique": 2,
+          "is_near_binary": true,
+          "zero_frac": 0.8301119357347488,
+          "nnz": 22801990
+        },
+        "morphology": {
+          "threshold": 127.5,
+          "solid_voxels": 22801990,
+          "solid_fraction_global_incl_background": 0.16988806426525116,
+          "porosity_global_incl_background": 0.8301119357347488,
+          "solid_fraction_in_sphere": 0.5824684143849492,
+          "porosity_in_sphere": 0.41753158561505077,
+          "n_solid_components": 8,
+          "n_pore_components_in_sphere": 9930,
+          "mean_pore_radius_edt": 3.341786157219519,
+          "mean_wall_thickness_edt": 4.200785283877804
+        },
+        "geometry": {
+          "elongation_sqrt_lmax_lmin": 1.0235632221758957,
+          "axis_std": [
+            93.06831551301883,
+            94.26675657485228,
+            95.26130490898846
+          ]
+        },
+        "edge": {
+          "mean_grad_on_surface": 166.1143823834114,
+          "edge_rise_10_90_px": 216.0,
+          "contrast": 254.99998474121094
+        },
+        "figure": "docs/figures/gt_sm70_analysis.png"
+      },
+      "note": "GT intensity/morphology from aligned_model SM70 analysis; same phantom family across SM_* tilt crops."
+    }
+  },
+  "sample_families": [
+    {
+      "id": "aligned_model",
+      "title": "Aligned model phantom",
+      "type": "simulated",
+      "has_ground_truth": true,
+      "blurb": "One porous near-binary phantom with known ground truth. The same volume is forward-projected under limited tilt ranges (missing wedge) and coarser angular steps (sparse view). Leaderboard labels SM_80…SM_40 name those conditions, not different samples.",
+      "preview": "assets/samples/aligned_model_volume.png?v=20261121n",
+      "preview_caption": "GT mid-plane",
+      "analysis_figure": "../figures/gt_sm70_analysis.png",
+      "gt_stats": {
+        "source": "docs/figures/gt_sm70_analysis.json",
+        "shape": [
+          512,
+          512,
+          512
+        ],
+        "dtype": "float32",
+        "nbytes_mb": 536.870912,
+        "intensity": {
+          "min": 0.0,
+          "max": 255.0,
+          "mean": 43.321456387639046,
+          "std": 95.76128025095448,
+          "median": 0.0,
+          "p01": 0.0,
+          "p99": 255.0,
+          "n_unique": 2,
+          "is_near_binary": true,
+          "zero_frac": 0.8301119357347488,
+          "nnz": 22801990
+        },
+        "morphology": {
+          "threshold": 127.5,
+          "solid_voxels": 22801990,
+          "solid_fraction_global_incl_background": 0.16988806426525116,
+          "porosity_global_incl_background": 0.8301119357347488,
+          "solid_fraction_in_sphere": 0.5824684143849492,
+          "porosity_in_sphere": 0.41753158561505077,
+          "n_solid_components": 8,
+          "n_pore_components_in_sphere": 9930,
+          "mean_pore_radius_edt": 3.341786157219519,
+          "mean_wall_thickness_edt": 4.200785283877804
+        },
+        "geometry": {
+          "elongation_sqrt_lmax_lmin": 1.0235632221758957,
+          "axis_std": [
+            93.06831551301883,
+            94.26675657485228,
+            95.26130490898846
+          ]
+        },
+        "edge": {
+          "mean_grad_on_surface": 166.1143823834114,
+          "edge_rise_10_90_px": 216.0,
+          "contrast": 254.99998474121094
+        },
+        "figure": "docs/figures/gt_sm70_analysis.png"
+      },
+      "conditions": [
+        {
+          "id": "aligned_model_sm80",
+          "dataset_id": null,
+          "path": "data/datasets/simulated/aligned_model_sm80_v1",
+          "type": "simulated",
+          "tilt_min": -80.0,
+          "tilt_max": 80.0,
+          "missing_wedge_deg": 20.0,
+          "angular_step_deg": 1.0,
+          "num_projections": 161,
+          "has_ground_truth": true,
+          "sample_family": "aligned_model",
+          "dataset": "SM_80"
+        },
+        {
+          "id": "aligned_model_sm70",
+          "dataset_id": null,
+          "path": "data/datasets/simulated/aligned_model_sm70_v1",
+          "type": "simulated",
+          "tilt_min": -70.0,
+          "tilt_max": 70.0,
+          "missing_wedge_deg": 40.0,
+          "angular_step_deg": 1.0,
+          "num_projections": 141,
+          "has_ground_truth": true,
+          "sample_family": "aligned_model",
+          "dataset": "SM_70"
+        },
+        {
+          "id": "aligned_model_sm70_step2",
+          "dataset_id": null,
+          "path": "data/datasets/simulated/aligned_model_sm70_step2_v1",
+          "type": "simulated",
+          "tilt_min": -70.0,
+          "tilt_max": 70.0,
+          "missing_wedge_deg": 40.0,
+          "angular_step_deg": 2.0,
+          "num_projections": 71,
+          "has_ground_truth": true,
+          "sample_family": "aligned_model",
+          "dataset": "SM_70"
+        },
+        {
+          "id": "aligned_model_sm70_step4",
+          "dataset_id": null,
+          "path": "data/datasets/simulated/aligned_model_sm70_step4_v1",
+          "type": "simulated",
+          "tilt_min": -70.0,
+          "tilt_max": 70.0,
+          "missing_wedge_deg": 40.0,
+          "angular_step_deg": 4.0,
+          "num_projections": 36,
+          "has_ground_truth": true,
+          "sample_family": "aligned_model",
+          "dataset": "SM_70"
+        },
+        {
+          "id": "aligned_model_sm60",
+          "dataset_id": null,
+          "path": "data/datasets/simulated/aligned_model_sm60_v1",
+          "type": "simulated",
+          "tilt_min": -60.0,
+          "tilt_max": 60.0,
+          "missing_wedge_deg": 60.0,
+          "angular_step_deg": 1.0,
+          "num_projections": 121,
+          "has_ground_truth": true,
+          "sample_family": "aligned_model",
+          "dataset": "SM_60"
+        },
+        {
+          "id": "aligned_model_sm50",
+          "dataset_id": null,
+          "path": "data/datasets/simulated/aligned_model_sm50_v1",
+          "type": "simulated",
+          "tilt_min": -50.0,
+          "tilt_max": 50.0,
+          "missing_wedge_deg": 80.0,
+          "angular_step_deg": 1.0,
+          "num_projections": 101,
+          "has_ground_truth": true,
+          "sample_family": "aligned_model",
+          "dataset": "SM_50"
+        },
+        {
+          "id": "aligned_model_sm40_v1",
+          "dataset_id": null,
+          "path": "data/datasets/simulated/aligned_model_sm40_v1",
+          "type": "simulated",
+          "tilt_min": -40.0,
+          "tilt_max": 40.0,
+          "missing_wedge_deg": 100.0,
+          "angular_step_deg": 1.0,
+          "num_projections": 81,
+          "has_ground_truth": true,
+          "sample_family": "aligned_model",
+          "dataset": "SM_40"
+        },
+        {
+          "id": "aligned_model_sm40_v1_step2deg",
+          "dataset_id": null,
+          "path": "data/datasets/simulated/aligned_model_sm40_v1_step2deg",
+          "type": "simulated",
+          "tilt_min": -40.0,
+          "tilt_max": 40.0,
+          "missing_wedge_deg": 100.0,
+          "angular_step_deg": 2.0,
+          "num_projections": 41,
+          "has_ground_truth": true,
+          "sample_family": "aligned_model",
+          "dataset": "SM_40"
+        }
+      ]
+    },
+    {
+      "id": "resire_vesicle",
+      "title": "Vesicle (simulated)",
+      "type": "simulated",
+      "has_ground_truth": true,
+      "blurb": "RESIRE SciRep 2023 simulated biological vesicle with ground truth (64³, 41 projections, ±70° / 3.5°). Suitable for general and missing-wedge protocol tracks with GT metrics.",
+      "preview": "assets/samples/resire_vesicle_volume.png?v=20261122b",
+      "preview_caption": "GT mid-plane",
+      "analysis_figure": null,
+      "gt_stats": null,
+      "conditions": [
+        {
+          "id": "RESIRE Vesicle (simulated)",
+          "dataset_id": "resire_vesicle_v1",
+          "path": "data/datasets/simulated/resire_vesicle_v1",
+          "type": "simulated",
+          "tilt_min": -70.0,
+          "tilt_max": 70.0,
+          "missing_wedge_deg": 40.0,
+          "angular_step_deg": 3.5,
+          "num_projections": 41,
+          "has_ground_truth": true,
+          "sample_family": "resire_vesicle",
+          "dataset": "resire_vesicle_v1"
+        }
+      ]
+    },
+    {
+      "id": "ceo2_s5",
+      "title": "CeO₂ S5",
+      "type": "experimental",
+      "has_ground_truth": false,
+      "blurb": "Experimental CeO₂ nanoparticle tilt series (no ground truth). Used for methods that do not require a GT volume.",
+      "preview": "assets/samples/ceo2_s5_volume.png?v=20261121n",
+      "preview_caption": "Volume preview",
+      "analysis_figure": null,
+      "gt_stats": null,
+      "conditions": [
+        {
+          "id": "CeO2 S5",
+          "dataset_id": "ceo2_s5_v1",
+          "path": "data/datasets/experimental/private/ceo2_s5_v1",
+          "type": "experimental",
+          "tilt_min": -70.0,
+          "tilt_max": 68.8,
+          "missing_wedge_deg": 41.19999999999999,
+          "angular_step_deg": 2.01159420289855,
+          "num_projections": 70,
+          "has_ground_truth": false,
+          "sample_family": "ceo2_s5",
+          "dataset": "ceo2_s5_v1"
+        }
+      ]
+    },
+    {
+      "id": "resire_aragonite_coral",
+      "title": "Aragonite coral",
+      "type": "experimental",
+      "has_ground_truth": false,
+      "blurb": "Experimental ADF-STEM tilt series of an aragonite coral biomineral (69 projections, −60°…+76°, pre-aligned, no GT). Fits the experimental / no-GT reconstruction track (reprojection / consistency metrics).",
+      "preview": "assets/samples/resire_aragonite_coral.png?v=20261122b",
+      "preview_caption": "0° projection",
+      "analysis_figure": null,
+      "gt_stats": null,
+      "conditions": [
+        {
+          "id": "RESIRE Aragonite Coral",
+          "dataset_id": "resire_aragonite_coral_v1",
+          "path": "data/datasets/experimental/public/resire_aragonite_coral_v1",
+          "type": "experimental",
+          "tilt_min": -60.0,
+          "tilt_max": 76.0,
+          "missing_wedge_deg": 44.0,
+          "angular_step_deg": 2.0,
+          "num_projections": 69,
+          "has_ground_truth": false,
+          "sample_family": "resire_aragonite_coral",
+          "dataset": "resire_aragonite_coral_v1"
+        }
+      ]
+    },
+    {
+      "id": "resire_ta_thinfilm",
+      "title": "Amorphous Ta thin film",
+      "type": "experimental",
+      "has_ground_truth": false,
+      "blurb": "Experimental ADF-STEM tilt series of an extended amorphous Ta film (51 projections, pre-aligned/cropped, no GT). Useful for missing-wedge behaviour on extended objects under the experimental / no-GT track.",
+      "preview": "assets/samples/resire_ta_thinfilm.png?v=20261122b",
+      "preview_caption": "Near-0° projection",
+      "analysis_figure": null,
+      "gt_stats": null,
+      "conditions": [
+        {
+          "id": "RESIRE Amorphous Ta Thin Film",
+          "dataset_id": "resire_ta_thinfilm_v1",
+          "path": "data/datasets/experimental/public/resire_ta_thinfilm_v1",
+          "type": "experimental",
+          "tilt_min": -69.39653015136719,
+          "tilt_max": 66.39874267578125,
+          "missing_wedge_deg": 44.20472717285156,
+          "angular_step_deg": 2.600796699523926,
+          "num_projections": 51,
+          "has_ground_truth": false,
+          "sample_family": "resire_ta_thinfilm",
+          "dataset": "resire_ta_thinfilm_v1"
+        }
+      ]
+    }
+  ],
+  "conditions": [
+    {
+      "id": "sm70_step1",
+      "label": "sm70 · ±70° · 1° step",
+      "tilt_abs": 70,
+      "tilt_min": -70.0,
+      "tilt_max": 70.0,
+      "angular_step_deg": 1.0,
+      "missing_wedge_deg": 40.0,
+      "audited": false,
+      "dataset": "SM_70"
+    }
+  ],
+  "datasets": [
+    {
+      "id": "CeO2 S5",
+      "dataset_id": "ceo2_s5_v1",
+      "path": "data/datasets/experimental/private/ceo2_s5_v1",
+      "type": "experimental",
+      "tilt_min": -70.0,
+      "tilt_max": 68.8,
+      "missing_wedge_deg": 41.19999999999999,
+      "angular_step_deg": 2.01159420289855,
+      "num_projections": 70,
+      "has_ground_truth": false,
+      "sample_family": "ceo2_s5",
+      "dataset": "ceo2_s5_v1"
+    },
+    {
+      "id": "RESIRE Aragonite Coral",
+      "dataset_id": "resire_aragonite_coral_v1",
+      "path": "data/datasets/experimental/public/resire_aragonite_coral_v1",
+      "type": "experimental",
+      "tilt_min": -60.0,
+      "tilt_max": 76.0,
+      "missing_wedge_deg": 44.0,
+      "angular_step_deg": 2.0,
+      "num_projections": 69,
+      "has_ground_truth": false,
+      "sample_family": "resire_aragonite_coral",
+      "dataset": "resire_aragonite_coral_v1"
+    },
+    {
+      "id": "RESIRE Amorphous Ta Thin Film",
+      "dataset_id": "resire_ta_thinfilm_v1",
+      "path": "data/datasets/experimental/public/resire_ta_thinfilm_v1",
+      "type": "experimental",
+      "tilt_min": -69.39653015136719,
+      "tilt_max": 66.39874267578125,
+      "missing_wedge_deg": 44.20472717285156,
+      "angular_step_deg": 2.600796699523926,
+      "num_projections": 51,
+      "has_ground_truth": false,
+      "sample_family": "resire_ta_thinfilm",
+      "dataset": "resire_ta_thinfilm_v1"
+    },
+    {
+      "id": "aligned_model_sm40_v1",
+      "dataset_id": null,
+      "path": "data/datasets/simulated/aligned_model_sm40_v1",
+      "type": "simulated",
+      "tilt_min": -40.0,
+      "tilt_max": 40.0,
+      "missing_wedge_deg": 100.0,
+      "angular_step_deg": 1.0,
+      "num_projections": 81,
+      "has_ground_truth": true,
+      "sample_family": "aligned_model",
+      "dataset": "SM_40"
+    },
+    {
+      "id": "aligned_model_sm40_v1_step2deg",
+      "dataset_id": null,
+      "path": "data/datasets/simulated/aligned_model_sm40_v1_step2deg",
+      "type": "simulated",
+      "tilt_min": -40.0,
+      "tilt_max": 40.0,
+      "missing_wedge_deg": 100.0,
+      "angular_step_deg": 2.0,
+      "num_projections": 41,
+      "has_ground_truth": true,
+      "sample_family": "aligned_model",
+      "dataset": "SM_40"
+    },
+    {
+      "id": "aligned_model_sm50",
+      "dataset_id": null,
+      "path": "data/datasets/simulated/aligned_model_sm50_v1",
+      "type": "simulated",
+      "tilt_min": -50.0,
+      "tilt_max": 50.0,
+      "missing_wedge_deg": 80.0,
+      "angular_step_deg": 1.0,
+      "num_projections": 101,
+      "has_ground_truth": true,
+      "sample_family": "aligned_model",
+      "dataset": "SM_50"
+    },
+    {
+      "id": "aligned_model_sm60",
+      "dataset_id": null,
+      "path": "data/datasets/simulated/aligned_model_sm60_v1",
+      "type": "simulated",
+      "tilt_min": -60.0,
+      "tilt_max": 60.0,
+      "missing_wedge_deg": 60.0,
+      "angular_step_deg": 1.0,
+      "num_projections": 121,
+      "has_ground_truth": true,
+      "sample_family": "aligned_model",
+      "dataset": "SM_60"
+    },
+    {
+      "id": "aligned_model_sm70_step2",
+      "dataset_id": null,
+      "path": "data/datasets/simulated/aligned_model_sm70_step2_v1",
+      "type": "simulated",
+      "tilt_min": -70.0,
+      "tilt_max": 70.0,
+      "missing_wedge_deg": 40.0,
+      "angular_step_deg": 2.0,
+      "num_projections": 71,
+      "has_ground_truth": true,
+      "sample_family": "aligned_model",
+      "dataset": "SM_70"
+    },
+    {
+      "id": "aligned_model_sm70_step4",
+      "dataset_id": null,
+      "path": "data/datasets/simulated/aligned_model_sm70_step4_v1",
+      "type": "simulated",
+      "tilt_min": -70.0,
+      "tilt_max": 70.0,
+      "missing_wedge_deg": 40.0,
+      "angular_step_deg": 4.0,
+      "num_projections": 36,
+      "has_ground_truth": true,
+      "sample_family": "aligned_model",
+      "dataset": "SM_70"
+    },
+    {
+      "id": "aligned_model_sm70",
+      "dataset_id": null,
+      "path": "data/datasets/simulated/aligned_model_sm70_v1",
+      "type": "simulated",
+      "tilt_min": -70.0,
+      "tilt_max": 70.0,
+      "missing_wedge_deg": 40.0,
+      "angular_step_deg": 1.0,
+      "num_projections": 141,
+      "has_ground_truth": true,
+      "sample_family": "aligned_model",
+      "dataset": "SM_70"
+    },
+    {
+      "id": "aligned_model_sm80",
+      "dataset_id": null,
+      "path": "data/datasets/simulated/aligned_model_sm80_v1",
+      "type": "simulated",
+      "tilt_min": -80.0,
+      "tilt_max": 80.0,
+      "missing_wedge_deg": 20.0,
+      "angular_step_deg": 1.0,
+      "num_projections": 161,
+      "has_ground_truth": true,
+      "sample_family": "aligned_model",
+      "dataset": "SM_80"
+    },
+    {
+      "id": "RESIRE Vesicle (simulated)",
+      "dataset_id": "resire_vesicle_v1",
+      "path": "data/datasets/simulated/resire_vesicle_v1",
+      "type": "simulated",
+      "tilt_min": -70.0,
+      "tilt_max": 70.0,
+      "missing_wedge_deg": 40.0,
+      "angular_step_deg": 3.5,
+      "num_projections": 41,
+      "has_ground_truth": true,
+      "sample_family": "resire_vesicle",
+      "dataset": "resire_vesicle_v1"
+    }
+  ],
+  "rows": [
+    {
+      "run": "aligned-model-sm70-20261110",
+      "algorithm": "astra-fbp",
+      "method_group": "classical",
+      "dataset": "SM_70",
+      "condition_id": "sm70_step1",
+      "angular_step_deg": 1.0,
+      "tilt_abs": 70,
+      "dataset_key": "aligned_model_sm70",
+      "status": "legacy",
+      "metrics": {
+        "psnr": 14.786053657531738,
+        "ssim": 0.8881794810295105,
+        "mse": 2160.10595703125,
+        "r2": 0.7948518004994596,
+        "elongation": 1.0039633283191234,
+        "fsc_resolution_px": 2.162162162162162,
+        "edge_rise_px": 32.946338214904145,
+        "dice": 0.9608268911737893,
+        "hausdorff95_px": 5.385164807134504,
+        "porosity_abs_error": 0.0023923516273498535,
+        "psd_wasserstein_px": 17.905487079646015,
+        "ssa_rel_error": 0.2960942050892574,
+        "void_cc_fraction_abs_error": 0.00037424362153382074,
+        "percolation_mismatch": 0.0
+      },
+      "execution": {
+        "runtime_seconds": null,
+        "docker_image": "registry.dp.tech/dptech/dp/native/prod-23359/astra:20261017",
+        "full_volume": null
+      }
+    },
+    {
+      "run": "aligned-model-sm70-20261110",
+      "algorithm": "astra-sirt",
+      "method_group": "classical",
+      "dataset": "SM_70",
+      "condition_id": "sm70_step1",
+      "angular_step_deg": 1.0,
+      "tilt_abs": 70,
+      "dataset_key": "aligned_model_sm70",
+      "status": "legacy",
+      "metrics": {
+        "psnr": 15.26369857788086,
+        "ssim": 0.8714715242385864,
+        "mse": 1935.1322021484375,
+        "r2": 0.7974263413125292,
+        "elongation": 1.1207025894524676,
+        "fsc_resolution_px": 2.758620689655172,
+        "edge_rise_px": 101.11815887469375,
+        "dice": 0.9304859031156553,
+        "hausdorff95_px": 2.23606797749979,
+        "porosity_abs_error": 0.0006167739629745483,
+        "psd_wasserstein_px": 0.26731315657672805,
+        "ssa_rel_error": 0.01677714774478502,
+        "void_cc_fraction_abs_error": 2.711125986354368e-05,
+        "percolation_mismatch": 0.0
+      },
+      "execution": {
+        "runtime_seconds": null,
+        "docker_image": "registry.dp.tech/dptech/dp/native/prod-23359/astra:20261017",
+        "full_volume": null
+      }
+    },
+    {
+      "run": "aligned-model-sm70-20261110",
+      "algorithm": "dart",
+      "method_group": "grey prior",
+      "dataset": "SM_70",
+      "condition_id": "sm70_step1",
+      "angular_step_deg": 1.0,
+      "tilt_abs": 70,
+      "dataset_key": "aligned_model_sm70",
+      "status": "legacy",
+      "metrics": {
+        "psnr": 8.79787540435791,
+        "ssim": 0.5154370069503784,
+        "mse": 8576.158203125,
+        "r2": 0.26597191404201737,
+        "elongation": 1.0037369370750548,
+        "fsc_resolution_px": 26.666666666666664,
+        "edge_rise_px": 3.4708711674973927,
+        "dice": 0.5836979684136293,
+        "hausdorff95_px": 6.4031242374328485,
+        "porosity_abs_error": 0.00013156980276107788,
+        "psd_wasserstein_px": 0.22396258365394445,
+        "ssa_rel_error": 0.025819759768174078,
+        "void_cc_fraction_abs_error": 3.0019192321151245e-05,
+        "percolation_mismatch": 0.0
+      },
+      "execution": {
+        "runtime_seconds": null,
+        "docker_image": "registry.dp.tech/dptech/dp/native/prod-23359/discrete:20261107",
+        "full_volume": null
+      }
+    },
+    {
+      "run": "aligned-model-sm70-20261110",
+      "algorithm": "deepdewedge",
+      "method_group": "self-supervised",
+      "dataset": "SM_70",
+      "condition_id": "sm70_step1",
+      "angular_step_deg": 1.0,
+      "tilt_abs": 70,
+      "dataset_key": "aligned_model_sm70",
+      "status": "legacy",
+      "metrics": {
+        "psnr": 11.210118293762207,
+        "ssim": 0.6838093400001526,
+        "mse": 4921.1728515625,
+        "r2": 0.7333974776950161,
+        "elongation": 1.1345432694086492,
+        "fsc_resolution_px": 2.051282051282051,
+        "edge_rise_px": 35.051051511047746,
+        "dice": 0.9017093907006294,
+        "hausdorff95_px": 139.66746220934925,
+        "porosity_abs_error": 0.033323727548122406,
+        "psd_wasserstein_px": 41.277136920683525,
+        "ssa_rel_error": 0.5268019230343831,
+        "void_cc_fraction_abs_error": 8.776959495304659e-05,
+        "percolation_mismatch": 0.0
+      },
+      "execution": {
+        "runtime_seconds": null,
+        "docker_image": "registry.dp.tech/dptech/dp/native/prod-23359/deepdewedge:20261104",
+        "full_volume": null
+      }
+    },
+    {
+      "run": "aligned-model-sm70-20261110",
+      "algorithm": "genfire",
+      "method_group": "classical",
+      "dataset": "SM_70",
+      "condition_id": "sm70_step1",
+      "angular_step_deg": 1.0,
+      "tilt_abs": 70,
+      "dataset_key": "aligned_model_sm70",
+      "status": "legacy",
+      "metrics": {
+        "psnr": 8.005818367004395,
+        "ssim": 0.4486805498600006,
+        "mse": 10291.9697265625,
+        "r2": 0.20938617001671064,
+        "elongation": 1.0468118987472186,
+        "fsc_resolution_px": 26.666666666666664,
+        "edge_rise_px": 29.438994012056583,
+        "dice": 0.5315542816456403,
+        "hausdorff95_px": 116.57186624567696,
+        "porosity_abs_error": 0.0016049444675445557,
+        "psd_wasserstein_px": 38.82782991984149,
+        "ssa_rel_error": 1.56076102905935,
+        "void_cc_fraction_abs_error": 0.0008969846027024886,
+        "percolation_mismatch": 0.0
+      },
+      "execution": {
+        "runtime_seconds": null,
+        "docker_image": "registry.dp.tech/dptech/dp/native/prod-23359/genfire:20261106",
+        "full_volume": null
+      }
+    },
+    {
+      "run": "aligned-model-sm70-isonet",
+      "algorithm": "isonet",
+      "method_group": "self-supervised",
+      "dataset": "SM_70",
+      "condition_id": "sm70_step1",
+      "angular_step_deg": 1.0,
+      "tilt_abs": 70,
+      "dataset_key": "aligned_model_sm70",
+      "status": "legacy",
+      "metrics": {
+        "psnr": 7.681188583374023,
+        "ssim": -5.789392889710143e-05,
+        "mse": 11090.765625,
+        "r2": 0.09420491234044727,
+        "elongation": 1.2947627009850085,
+        "fsc_resolution_px": 80.0,
+        "edge_rise_px": 68.93664549422219,
+        "dice": 0.0,
+        "porosity_abs_error": 0.16988806426525116,
+        "psd_wasserstein_px": 427.757749786433,
+        "ssa_rel_error": 1.0,
+        "void_cc_fraction_abs_error": 4.550524091984087e-06,
+        "percolation_mismatch": 0.0
+      },
+      "execution": {
+        "runtime_seconds": null,
+        "docker_image": "registry.dp.tech/dptech/dp/native/prod-23359/isonet:20261111",
+        "full_volume": null
+      }
+    },
+    {
+      "run": "aligned-model-sm70",
+      "algorithm": "sirt",
+      "method_group": "classical",
+      "dataset": "SM_70",
+      "condition_id": "sm70_step1",
+      "angular_step_deg": 1.0,
+      "tilt_abs": 70,
+      "dataset_key": "aligned_model_sm70",
+      "status": "legacy",
+      "metrics": {
+        "psnr": 7.69838285446167,
+        "ssim": 5.229789786453075e-15,
+        "mse": 11046.9423828125
+      },
+      "execution": {
+        "runtime_seconds": null,
+        "docker_image": "registry.dp.tech/dptech/dp/native/prod-23359/sirt:20261019",
+        "full_volume": null
+      }
+    },
+    {
+      "run": "aligned-model-sm70-20261110",
+      "algorithm": "tigre-sirt",
+      "method_group": "classical",
+      "dataset": "SM_70",
+      "condition_id": "sm70_step1",
+      "angular_step_deg": 1.0,
+      "tilt_abs": 70,
+      "dataset_key": "aligned_model_sm70",
+      "status": "legacy",
+      "metrics": {
+        "psnr": 15.556469917297363,
+        "ssim": 0.878423273563385,
+        "mse": 1808.978759765625,
+        "r2": 0.8157522074927684,
+        "elongation": 1.067429571405425,
+        "fsc_resolution_px": 2.424242424242424,
+        "edge_rise_px": 23.64254336284567,
+        "dice": 0.931012589191133,
+        "hausdorff95_px": 2.23606797749979,
+        "porosity_abs_error": 0.0016125887632369995,
+        "psd_wasserstein_px": 0.46684118594968405,
+        "ssa_rel_error": 0.03231221289052419,
+        "void_cc_fraction_abs_error": 1.276073596090388e-05,
+        "percolation_mismatch": 0.0
+      },
+      "execution": {
+        "runtime_seconds": null,
+        "docker_image": "registry.dp.tech/dptech/dp/native/prod-23359/tigre:20261027",
+        "full_volume": null
+      }
+    },
+    {
+      "run": "aligned-model-sm70-20261110",
+      "algorithm": "tvm",
+      "method_group": "TV regularized iterative",
+      "dataset": "SM_70",
+      "condition_id": "sm70_step1",
+      "angular_step_deg": 1.0,
+      "tilt_abs": 70,
+      "dataset_key": "aligned_model_sm70",
+      "status": "legacy",
+      "metrics": {
+        "psnr": 8.843677520751953,
+        "ssim": 0.5185011029243469,
+        "mse": 8486.1884765625,
+        "r2": 0.26923504424883454,
+        "elongation": 1.0107337071175568,
+        "fsc_resolution_px": 26.666666666666664,
+        "edge_rise_px": 3.2843725113163202,
+        "dice": 0.5844225791095796,
+        "hausdorff95_px": 6.4031242374328485,
+        "porosity_abs_error": 0.00012329965829849243,
+        "psd_wasserstein_px": 0.07560821102702697,
+        "ssa_rel_error": 0.006656515679956348,
+        "void_cc_fraction_abs_error": 2.609235384420927e-07,
+        "percolation_mismatch": 0.0
+      },
+      "execution": {
+        "runtime_seconds": null,
+        "docker_image": "registry.dp.tech/dptech/dp/native/prod-23359/tvm:20261107",
+        "full_volume": null
+      }
+    },
+    {
+      "run": "aligned-model-sm70-20261110",
+      "algorithm": "tvr-dart",
+      "method_group": "grey prior",
+      "dataset": "SM_70",
+      "condition_id": "sm70_step1",
+      "angular_step_deg": 1.0,
+      "tilt_abs": 70,
+      "dataset_key": "aligned_model_sm70",
+      "status": "legacy",
+      "metrics": {
+        "psnr": 8.599061012268066,
+        "ssim": 0.502557635307312,
+        "mse": 8977.890625,
+        "r2": 0.25263831438651035,
+        "elongation": 0.9999845114068483,
+        "fsc_resolution_px": 26.666666666666664,
+        "edge_rise_px": 0.8224081831085357,
+        "dice": 0.5797006164350388,
+        "hausdorff95_px": 6.4031242374328485,
+        "porosity_abs_error": 0.002119876444339752,
+        "psd_wasserstein_px": 0.15538055636342743,
+        "ssa_rel_error": 0.04451293697785708,
+        "void_cc_fraction_abs_error": 3.1922084750446444e-05,
+        "percolation_mismatch": 0.0
+      },
+      "execution": {
+        "runtime_seconds": null,
+        "docker_image": "registry.dp.tech/dptech/dp/native/prod-23359/discrete:20261107",
+        "full_volume": null
+      }
+    },
+    {
+      "run": "aligned-model-sm70-20261110",
+      "algorithm": "wbp",
+      "method_group": "classical",
+      "dataset": "SM_70",
+      "condition_id": "sm70_step1",
+      "angular_step_deg": 1.0,
+      "tilt_abs": 70,
+      "dataset_key": "aligned_model_sm70",
+      "status": "legacy",
+      "metrics": {
+        "psnr": 14.764644622802734,
+        "ssim": 0.8874768614768982,
+        "mse": 2170.780517578125,
+        "r2": 0.7906550128169939,
+        "elongation": 1.0114119021806263,
+        "fsc_resolution_px": 2.162162162162162,
+        "edge_rise_px": 33.07716865890862,
+        "dice": 0.9609070491782208,
+        "hausdorff95_px": 4.123105625617661,
+        "porosity_abs_error": 9.341537952423096e-05,
+        "psd_wasserstein_px": 16.389249756153333,
+        "ssa_rel_error": 0.3013231921780871,
+        "void_cc_fraction_abs_error": 0.00043411730560682926,
+        "percolation_mismatch": 0.0
+      },
+      "execution": {
+        "runtime_seconds": null,
+        "docker_image": "registry.dp.tech/dptech/dp/native/prod-23359/wbp:20261019v1",
+        "full_volume": null
+      }
+    },
+    {
+      "run": "aligned-model-sm70-20261111",
+      "algorithm": "wucon",
+      "method_group": "self-supervised",
+      "dataset": "SM_70",
+      "condition_id": "sm70_step1",
+      "angular_step_deg": 1.0,
+      "tilt_abs": 70,
+      "dataset_key": "aligned_model_sm70",
+      "status": "legacy",
+      "metrics": {
+        "psnr": null,
+        "ssim": 0.0,
+        "mse": null,
+        "fsc_resolution_px": 2.051282051282051,
+        "dice": 0.0,
+        "porosity_abs_error": 0.16988806426525116,
+        "psd_wasserstein_px": 427.757749786433,
+        "ssa_rel_error": 1.0,
+        "void_cc_fraction_abs_error": 4.550524091984087e-06,
+        "percolation_mismatch": 0.0
+      },
+      "execution": {
+        "runtime_seconds": null,
+        "docker_image": "registry.dp.tech/dptech/dp/native/prod-23359/wucon:20261111",
+        "full_volume": null
+      }
+    }
+  ]
+}
