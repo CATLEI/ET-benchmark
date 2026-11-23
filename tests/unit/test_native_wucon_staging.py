@@ -25,6 +25,7 @@ from et_dflow.infrastructure.algorithms.native_wucon import (
     stage_wucon_inputs,
     write_mrc,
     write_tlt,
+    wucon_full_chunk_idx_plan,
     _clear_blank_cuda_visible_devices,
     _render_constants_py,
 )
@@ -71,6 +72,24 @@ def test_ensure_even_height_keeps_even():
     even = np.zeros((4, 32, 16), dtype=np.float32)
     out = ensure_even_height(even)
     assert out.shape == (4, 32, 16)
+
+
+def test_wucon_full_chunk_idx_plan_sm70_height():
+    # Even-cropped detector height 512: last 2-slice chunk starts at 510.
+    plan = wucon_full_chunk_idx_plan(512)
+    assert plan["sy_mid"] == 256
+    assert plan["adj"] == 254
+    assert plan["up"][0] == 256
+    assert plan["up"][-1] == 510
+    assert 512 not in plan["up"]
+    assert plan["down"][-1] == 0
+    assert all(idx >= 0 for idx in plan["down"])
+    assert all(idx % 2 == 0 for idx in plan["up"] + plan["down"])
+
+
+def test_wucon_full_chunk_idx_plan_rejects_odd():
+    with pytest.raises(ValueError, match="even height"):
+        wucon_full_chunk_idx_plan(513)
 
 
 def test_resolve_wucon_src_dir_from_config(tmp_path):

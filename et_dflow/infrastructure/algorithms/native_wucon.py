@@ -414,6 +414,36 @@ def _dir_out(work_root: Path, case_id: int) -> Path:
     return work_root / "out" / DATASET_NAME / ("c%d" % case_id)
 
 
+def wucon_full_chunk_idx_plan(height: int) -> Dict[str, Any]:
+    """Y-chunk indices for the official mid → adj → up/down sweep.
+
+    Upstream ``recon_volume.go_up`` uses ``range(sy_mid, sy_end+2, 2)`` with
+    ``sy_end = 2*sy_mid`` (== height when even). That last ``idx_y == height``
+    crops an empty ``prj[..., height:height+2]`` slice and raises in odl/torch
+    (``expected (..., 2), got (..., 0)``). Official ``os.system`` ignores that
+    failure; we use ``check=True``, so the up range must stop at ``height-2``.
+    """
+    if height < 4:
+        raise ValueError("WUCON full sweep needs height >= 4, got %s" % height)
+    if height % 2:
+        raise ValueError(
+            "WUCON full sweep expects even height (ensure_even_height), got %s"
+            % height
+        )
+    sy_mid = height // 2
+    sy_end = int(2 * sy_mid)  # == height
+    # Last valid start for a 2-slice chunk: height - 2 (== sy_end - 2).
+    up = list(range(sy_mid, sy_end, 2))
+    down = [idx for idx in range(sy_mid - 4, -2, -2) if idx >= 0]
+    return {
+        "sy_mid": sy_mid,
+        "sy_end": sy_end,
+        "adj": sy_mid - 2,
+        "up": up,
+        "down": down,
+    }
+
+
 def run_wucon_full_chunks(
     *,
     src_copy: Path,
@@ -425,11 +455,24 @@ def run_wucon_full_chunks(
     gpu_id: int,
 ) -> None:
     """Official-style adj + up/down sweep after mid chunk (subprocess, check=True)."""
-    sy_mid = height // 2
-    sy_end = int(2 * sy_mid)
+    plan = wucon_full_chunk_idx_plan(height)
+    sy_mid = int(plan["sy_mid"])
     dir_out = _dir_out(work_root, case_id)
     gpu_u = gpu_id
     gpu_d = gpu_id
+    print(
+        "WUCON_RUN full-sweep height=%s mid=%s adj=%s up=%s..%s down=%s..%s"
+        % (
+            height,
+            sy_mid,
+            plan["adj"],
+            plan["up"][0] if plan["up"] else None,
+            plan["up"][-1] if plan["up"] else None,
+            plan["down"][0] if plan["down"] else None,
+            plan["down"][-1] if plan["down"] else None,
+        ),
+        flush=True,
+    )
 
     # Adjacent downward chunk initialized from mid
     path_init = dir_out / ("sy%s" % str(sy_mid).zfill(4)) / "checkpoints" / "model_final.pth"
@@ -440,7 +483,7 @@ def run_wucon_full_chunks(
             dataset=DATASET_NAME,
             expmt_type="all",
             gpu=gpu_d,
-            idx_y=sy_mid - 2,
+            idx_y=int(plan["adj"]),
             path_init_model=str(path_init),
         ),
         cwd=src_copy,
@@ -454,7 +497,7 @@ def run_wucon_full_chunks(
             shutil.rmtree(no_init)
         mid_dir.rename(no_init)
 
-    for idx_y in range(sy_mid, sy_end + 2, 2):
+    for idx_y in plan["up"]:
         sy_init = idx_y - 2
         init = dir_out / ("sy%s" % str(sy_init).zfill(4)) / "checkpoints" / "model_final.pth"
         _run_checked(
@@ -472,9 +515,7 @@ def run_wucon_full_chunks(
             step="chunk-up-%s" % idx_y,
         )
 
-    for idx_y in range(sy_mid - 4, -2, -2):
-        if idx_y < 0:
-            break
+    for idx_y in plan["down"]:
         sy_init = idx_y + 2
         init = dir_out / ("sy%s" % str(sy_init).zfill(4)) / "checkpoints" / "model_final.pth"
         _run_checked(
@@ -706,6 +747,9 @@ def run_wucon_reconstruction(
     rec_sig.metadata.set_item("et_dflow.native_solver", "wucon")
     rec_sig.metadata.set_item("et_dflow.wucon_output", str(chosen))
     rec_sig.metadata.set_item("et_dflow.wucon_recon_subset", recon_subset)
+    # Protocol Track C: subset mid-chunk is smoke only; official tables need full y.
+    rec_sig.metadata.set_item("et_dflow.full_volume", (not recon_subset))
+    rec_sig.metadata.set_item("et_dflow.protocol_track", "C_self_supervised")
 
     return make_adapter_algorithm_result(
         rec_sig,
@@ -716,6 +760,8 @@ def run_wucon_reconstruction(
             "wucon_work_dir": str(work_root),
             "wucon_case_id": case_id,
             "wucon_recon_subset": recon_subset,
+            "full_volume": (not recon_subset),
+            "protocol_track": "C_self_supervised",
             "wucon_n_epochs_mid": n_epochs_mid,
             "wucon_n_epochs_all": n_epochs_all,
             "wucon_img_size_load": staged["img_size_load"],
