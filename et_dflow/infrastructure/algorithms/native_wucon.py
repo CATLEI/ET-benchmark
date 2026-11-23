@@ -421,7 +421,12 @@ def wucon_full_chunk_idx_plan(height: int) -> Dict[str, Any]:
     ``sy_end = 2*sy_mid`` (== height when even). That last ``idx_y == height``
     crops an empty ``prj[..., height:height+2]`` slice and raises in odl/torch
     (``expected (..., 2), got (..., 0)``). Official ``os.system`` ignores that
-    failure; we use ``check=True``, so the up range must stop at ``height-2``.
+    failure; we use ``check=True``, so every ``idx_y`` must satisfy
+    ``0 <= idx_y <= height-2`` (two slices ``[idx_y:idx_y+2]``).
+
+    When ``sy_mid`` is odd (e.g. height 342 → mid 171), ``range(sy_mid, height, 2)``
+    still ends at ``height-1`` and yields a 1-slice crop (``got (..., 1)``). Stop
+    the exclusive end at ``height-1`` so the last start is ``<= height-2``.
     """
     if height < 4:
         raise ValueError("WUCON full sweep needs height >= 4, got %s" % height)
@@ -432,9 +437,13 @@ def wucon_full_chunk_idx_plan(height: int) -> Dict[str, Any]:
         )
     sy_mid = height // 2
     sy_end = int(2 * sy_mid)  # == height
-    # Last valid start for a 2-slice chunk: height - 2 (== sy_end - 2).
-    up = list(range(sy_mid, sy_end, 2))
-    down = [idx for idx in range(sy_mid - 4, -2, -2) if idx >= 0]
+    # Exclusive end height-1 ⇒ last included start <= height-2 (works for odd mid).
+    up = list(range(sy_mid, height - 1, 2))
+    down = [
+        idx
+        for idx in range(sy_mid - 4, -2, -2)
+        if 0 <= idx <= height - 2
+    ]
     return {
         "sy_mid": sy_mid,
         "sy_end": sy_end,

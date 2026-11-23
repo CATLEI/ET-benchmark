@@ -18,6 +18,7 @@ Optional refine-only mode: set ``ddw_refine_config_yaml`` and
 from __future__ import annotations
 
 import csv
+import math
 import os
 import re
 import shutil
@@ -93,6 +94,40 @@ def _subtomo_size_for_volume(shape: Tuple[int, ...], config: Dict[str, Any]) -> 
             "Aligned subtomo_size %s < 64 for volume shape %s" % (size, shape)
         )
     return size
+
+
+def _ddw_enlarged_subtomo_size(subtomo_size: int) -> int:
+    """Match DeepDeWedge ``ceil_to_even_integer(sqrt(2) * subtomo_size)``."""
+    return int(math.ceil((math.sqrt(2) * float(subtomo_size)) / 2.0) * 2)
+
+
+def _extract_larger_subtomos_for_volume(
+    shape: Tuple[int, ...],
+    subtomo_size: int,
+    config: Dict[str, Any],
+) -> bool:
+    """
+    DDW defaults ``extract_larger_subtomos_for_rotating=True``, which expands the
+    unfold window to ~sqrt(2)*size (64 → 92). On volumes smaller than that
+    expanded size (e.g. RESIRE vesicle 64³) prepare-data crashes. Disable
+    automatically unless the user overrides.
+    """
+    if config.get("ddw_extract_larger_subtomos_for_rotating") is not None:
+        return bool(config["ddw_extract_larger_subtomos_for_rotating"])
+    vmin = int(min(shape))
+    return _ddw_enlarged_subtomo_size(subtomo_size) <= vmin
+
+
+def _subtomo_grid_count(
+    shape: Tuple[int, ...], subtomo_size: int, stride: int
+) -> int:
+    dims = [int(d) for d in shape]
+    if any(d < subtomo_size for d in dims):
+        return 0
+    n = 1
+    for d in dims:
+        n *= (d - subtomo_size) // stride + 1
+    return int(n)
 
 
 def _parallel_backproject_slice(
@@ -180,14 +215,34 @@ def _build_ddw_config_dict(
     subtomo_size: int,
     num_epochs: int,
     standardize: bool,
+    volume_shape: Tuple[int, ...],
     config: Dict[str, Any],
 ) -> Dict[str, Any]:
-    stride = int(config.get("ddw_subtomo_stride") or max(8, round(subtomo_size * 2 / 3)))
+    extract_larger = _extract_larger_subtomos_for_volume(
+        volume_shape, subtomo_size, config
+    )
+    # Exact-fit volumes (e.g. 64³ with size 64) only yield one cube; use full-size stride.
+    default_stride = (
+        subtomo_size
+        if int(min(volume_shape)) == subtomo_size
+        else max(8, round(subtomo_size * 2 / 3))
+    )
+    stride = int(config.get("ddw_subtomo_stride") or default_stride)
     overlap = int(config.get("ddw_subtomo_overlap") or max(1, subtomo_size // 3))
-    fit_bs = int(config.get("ddw_fit_batch_size") or 5)
-    refine_bs = int(config.get("ddw_refine_batch_size") or 10)
+    n_subtomos = _subtomo_grid_count(volume_shape, subtomo_size, stride)
+    if config.get("ddw_val_fraction") is not None:
+        val_fraction = float(config["ddw_val_fraction"])
+    elif n_subtomos <= 1:
+        # ceil(1 * 0.2) == 1 would put the only cube in val and leave fit empty.
+        val_fraction = 0.0
+    else:
+        val_fraction = 0.2
+    default_fit_bs = 1 if n_subtomos <= 5 else 5
+    fit_bs = int(config.get("ddw_fit_batch_size") or default_fit_bs)
+    refine_bs = int(config.get("ddw_refine_batch_size") or min(10, max(1, fit_bs)))
     num_workers = int(config.get("ddw_num_workers") or 4)
     save_every = max(num_epochs + 1, 10**9)
+    pad_before = bool(config.get("ddw_pad_before_subtomo_extraction", False))
     return {
         "shared": {
             "project_dir": str(project_dir),
@@ -206,7 +261,9 @@ def _build_ddw_config_dict(
                 config.get("ddw_min_nonzero_mask_fraction", 0.0)
             ),
             "subtomo_extraction_strides": [stride, stride, stride],
-            "val_fraction": float(config.get("ddw_val_fraction") or 0.2),
+            "val_fraction": val_fraction,
+            "extract_larger_subtomos_for_rotating": extract_larger,
+            "pad_before_subtomo_extraction": pad_before,
         },
         "fit_model": {
             "unet_params_dict": {
@@ -405,6 +462,9 @@ def run_deepdewedge_reconstruction(
         )
 
     subtomo_size = _subtomo_size_for_volume(vol0.shape, config)
+    extract_larger = _extract_larger_subtomos_for_volume(
+        vol0.shape, subtomo_size, config
+    )
     mean_abs = 0.5 * (float(np.mean(np.abs(vol0))) + float(np.mean(np.abs(vol1))))
     std_mean = 0.5 * (float(np.std(vol0)) + float(np.std(vol1)))
     standardize = bool(config.get("ddw_standardize_full_tomos"))
@@ -432,14 +492,24 @@ def run_deepdewedge_reconstruction(
         subtomo_size=subtomo_size,
         num_epochs=num_epochs,
         standardize=standardize,
+        volume_shape=tuple(int(x) for x in vol0.shape),
         config=config,
     )
     yaml_path = work_root / "ddw_config.yaml"
     with yaml_path.open("w", encoding="utf-8") as fh:
         yaml.safe_dump(cfg, fh, sort_keys=False)
     print(
-        "DDW_RUN step=write-config path=%s subtomo_size=%s standardize=%s epochs=%s"
-        % (yaml_path, subtomo_size, standardize, num_epochs),
+        "DDW_RUN step=write-config path=%s subtomo_size=%s enlarge=%s "
+        "enlarged_need=%s vol=%s standardize=%s epochs=%s"
+        % (
+            yaml_path,
+            subtomo_size,
+            extract_larger,
+            _ddw_enlarged_subtomo_size(subtomo_size),
+            tuple(int(x) for x in vol0.shape),
+            standardize,
+            num_epochs,
+        ),
         flush=True,
     )
 

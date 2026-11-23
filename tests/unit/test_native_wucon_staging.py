@@ -74,6 +74,11 @@ def test_ensure_even_height_keeps_even():
     assert out.shape == (4, 32, 16)
 
 
+def _assert_plan_chunks_fit(height: int, plan: dict) -> None:
+    for idx in plan["up"] + plan["down"] + [plan["adj"], plan["sy_mid"]]:
+        assert 0 <= idx <= height - 2, (height, idx, plan)
+
+
 def test_wucon_full_chunk_idx_plan_sm70_height():
     # Even-cropped detector height 512: last 2-slice chunk starts at 510.
     plan = wucon_full_chunk_idx_plan(512)
@@ -83,8 +88,26 @@ def test_wucon_full_chunk_idx_plan_sm70_height():
     assert plan["up"][-1] == 510
     assert 512 not in plan["up"]
     assert plan["down"][-1] == 0
-    assert all(idx >= 0 for idx in plan["down"])
-    assert all(idx % 2 == 0 for idx in plan["up"] + plan["down"])
+    _assert_plan_chunks_fit(512, plan)
+
+
+def test_wucon_full_chunk_idx_plan_ta_thinfilm_odd_then_even():
+    # Raw H=425 → ensure_even_height → 424; old up included idx_y=424 (empty).
+    plan = wucon_full_chunk_idx_plan(424)
+    assert plan["sy_mid"] == 212
+    assert plan["up"][-1] == 422
+    assert 424 not in plan["up"]
+    _assert_plan_chunks_fit(424, plan)
+
+
+def test_wucon_full_chunk_idx_plan_coral_odd_sy_mid():
+    # RESIRE aragonite coral H=342 → sy_mid=171 (odd). Old/naive exclusive
+    # end at height still yields idx_y=341 → 1-slice crop.
+    plan = wucon_full_chunk_idx_plan(342)
+    assert plan["sy_mid"] == 171
+    assert plan["up"][-1] == 339
+    assert 341 not in plan["up"]
+    _assert_plan_chunks_fit(342, plan)
 
 
 def test_wucon_full_chunk_idx_plan_rejects_odd():
