@@ -23,6 +23,8 @@ ARG ET_DFLOW_REPO_URL=https://github.com/CATLEI/ET-benchmark.git
 ARG ET_DFLOW_REPO_REF=main
 ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cu121
 ARG TORCH_VERSION=
+# Bump when main adapter fixes must invalidate Bohrium BuildKit git-clone cache.
+ARG ET_CACHE_BUST=20261124-ddw-fitting-ckpt
 
 RUN apt-get update && apt-get install -y --no-install-recommends git \
     && rm -rf /var/lib/apt/lists/*
@@ -31,7 +33,8 @@ RUN test -n "${ET_DFLOW_REPO_URL}" || \
     (echo "ET_DFLOW_REPO_URL build arg is required." >&2 && exit 1)
 
 # Clone + require torch helpers (also busts stale Bohr build cache of old main).
-RUN git clone "${ET_DFLOW_REPO_URL}" repo && \
+RUN echo "ET_CACHE_BUST=${ET_CACHE_BUST}" && \
+    git clone "${ET_DFLOW_REPO_URL}" repo && \
     cd repo && \
     git checkout "${ET_DFLOW_REPO_REF}" && \
     git rev-parse HEAD && \

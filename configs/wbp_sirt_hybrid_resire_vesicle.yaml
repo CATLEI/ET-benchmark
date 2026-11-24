@@ -193,10 +193,12 @@ algorithms:
       ddw_pipeline: true
       ddw_num_epochs: 200
       # 64³ volume: DDW enlarge (~√2×size→92) cannot fit; adapter auto-disables it.
+      # val_fraction=0 ⇒ no val_loss ckpt; adapter saves fitting_loss instead.
       ddw_subtomo_size: 64
       ddw_extract_larger_subtomos_for_rotating: false
       ddw_val_fraction: 0.0
       ddw_fit_batch_size: 1
+      ddw_save_n_fitting_loss: 1
       tilt_range: [-70.0, 70.0]
     resources:
       cpu: 8

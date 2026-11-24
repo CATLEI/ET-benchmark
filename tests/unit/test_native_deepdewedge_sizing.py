@@ -44,3 +44,15 @@ def test_extract_larger_override():
         )
         is True
     )
+
+
+def test_parse_fitting_loss_from_ckpt_name():
+    from pathlib import Path
+
+    from et_dflow.infrastructure.algorithms.native_deepdewedge import (
+        _parse_loss_from_ckpt_name,
+    )
+
+    p = Path("epoch=12-fitting_loss=0.00075.ckpt")
+    assert _parse_loss_from_ckpt_name(p) == 0.00075
+    assert _parse_loss_from_ckpt_name(Path("epoch=3-val_loss=1.2.ckpt")) == 1.2

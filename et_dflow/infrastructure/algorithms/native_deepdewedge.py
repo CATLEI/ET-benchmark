@@ -241,7 +241,25 @@ def _build_ddw_config_dict(
     fit_bs = int(config.get("ddw_fit_batch_size") or default_fit_bs)
     refine_bs = int(config.get("ddw_refine_batch_size") or min(10, max(1, fit_bs)))
     num_workers = int(config.get("ddw_num_workers") or 4)
-    save_every = max(num_epochs + 1, 10**9)
+    # With val_fraction=0 (e.g. vesicle 64³ → one cube), DDW skips val_loss
+    # checkpoints. Our previous save_every=1e9 + fitting_loss=0 wrote nothing.
+    has_val = val_fraction > 0.0 and n_subtomos > 1
+    if config.get("ddw_save_n_val_loss") is not None:
+        save_n_val = int(config["ddw_save_n_val_loss"])
+    else:
+        save_n_val = 1 if has_val else 0
+    if config.get("ddw_save_n_fitting_loss") is not None:
+        save_n_fit = int(config["ddw_save_n_fitting_loss"])
+    else:
+        save_n_fit = 0 if has_val else 1
+    if config.get("ddw_save_every_n_epochs") is not None:
+        save_every = int(config["ddw_save_every_n_epochs"])
+    elif has_val:
+        # Prefer val_loss top-k; avoid flooding epoch/ with every-epoch dumps.
+        save_every = max(num_epochs + 1, 10**9)
+    else:
+        # Guarantee at least one epoch checkpoint when only fitting_loss is used.
+        save_every = max(1, num_epochs)
     pad_before = bool(config.get("ddw_pad_before_subtomo_extraction", False))
     return {
         "shared": {
@@ -278,8 +296,8 @@ def _build_ddw_config_dict(
                 config.get("ddw_update_mw_every") or 10
             ),
             "check_val_every_n_epochs": int(config.get("ddw_check_val_every") or 1),
-            "save_n_models_with_lowest_val_loss": 1,
-            "save_n_models_with_lowest_fitting_loss": 0,
+            "save_n_models_with_lowest_val_loss": save_n_val,
+            "save_n_models_with_lowest_fitting_loss": save_n_fit,
             "save_model_every_n_epochs": save_every,
             "logger": "csv",
         },
@@ -300,8 +318,13 @@ def _run_ddw(ddw_bin: str, subcommand: str, yaml_path: Path, env: Dict[str, str]
     )
 
 
-def _parse_val_loss_from_name(path: Path) -> Optional[float]:
-    m = re.search(r"val[_-]?loss[=_]?([0-9]*\.?[0-9]+(?:e-?[0-9]+)?)", path.name, re.I)
+def _parse_loss_from_ckpt_name(path: Path) -> Optional[float]:
+    """Parse ``val_loss`` / ``fitting_loss`` from Lightning checkpoint filenames."""
+    m = re.search(
+        r"(?:val[_-]?loss|fitting[_-]?loss)[=_]?([0-9]*\.?[0-9]+(?:e-?[0-9]+)?)",
+        path.name,
+        re.I,
+    )
     if not m:
         return None
     try:
@@ -312,10 +335,18 @@ def _parse_val_loss_from_name(path: Path) -> Optional[float]:
 
 def _pick_best_val_checkpoint(project_dir: Path) -> Tuple[Path, Optional[float]]:
     logdir = project_dir / "logs"
-    val_dir = logdir / "checkpoints" / "val_loss"
+    preferred_dirs = (
+        logdir / "checkpoints" / "val_loss",
+        logdir / "checkpoints" / "fitting_loss",
+        logdir / "checkpoints" / "epoch",
+    )
     candidates: List[Path] = []
-    if val_dir.is_dir():
-        candidates.extend(sorted(val_dir.glob("*.ckpt")))
+    for d in preferred_dirs:
+        if d.is_dir():
+            found = sorted(d.glob("*.ckpt"))
+            if found:
+                candidates = found
+                break
     if not candidates:
         candidates = sorted(logdir.rglob("*.ckpt")) if logdir.is_dir() else []
     if not candidates:
@@ -325,7 +356,7 @@ def _pick_best_val_checkpoint(project_dir: Path) -> Tuple[Path, Optional[float]]
 
     scored: List[Tuple[float, Path]] = []
     for ckpt in candidates:
-        loss = _parse_val_loss_from_name(ckpt)
+        loss = _parse_loss_from_ckpt_name(ckpt)
         if loss is not None:
             scored.append((loss, ckpt))
 
@@ -338,7 +369,12 @@ def _pick_best_val_checkpoint(project_dir: Path) -> Tuple[Path, Optional[float]]
                     best_epoch = None
                     best_loss = None
                     for row in reader:
-                        for key in ("val_loss", "validation_loss", "val_loss_epoch"):
+                        for key in (
+                            "val_loss",
+                            "validation_loss",
+                            "val_loss_epoch",
+                            "fitting_loss",
+                        ):
                             if key in row and row[key] not in (None, ""):
                                 try:
                                     loss = float(row[key])
@@ -353,7 +389,7 @@ def _pick_best_val_checkpoint(project_dir: Path) -> Tuple[Path, Optional[float]]
                                 "epoch_%s" % best_epoch
                             ) in ckpt.name:
                                 print(
-                                    "DDW_RUN step=pick-model ckpt=%s val_loss=%s "
+                                    "DDW_RUN step=pick-model ckpt=%s loss=%s "
                                     "(from %s)"
                                     % (ckpt, best_loss, metrics),
                                     flush=True,
@@ -361,10 +397,9 @@ def _pick_best_val_checkpoint(project_dir: Path) -> Tuple[Path, Optional[float]]
                                 return ckpt, best_loss
             except OSError:
                 continue
-        # Single checkpoint or fallback to newest under val_loss
         chosen = max(candidates, key=lambda p: p.stat().st_mtime)
         print(
-            "DDW_RUN step=pick-model ckpt=%s val_loss=unknown (fallback newest)"
+            "DDW_RUN step=pick-model ckpt=%s loss=unknown (fallback newest)"
             % chosen,
             flush=True,
         )
@@ -373,7 +408,7 @@ def _pick_best_val_checkpoint(project_dir: Path) -> Tuple[Path, Optional[float]]
     scored.sort(key=lambda x: x[0])
     best_loss, best_ckpt = scored[0]
     print(
-        "DDW_RUN step=pick-model ckpt=%s val_loss=%s" % (best_ckpt, best_loss),
+        "DDW_RUN step=pick-model ckpt=%s loss=%s" % (best_ckpt, best_loss),
         flush=True,
     )
     return best_ckpt, best_loss
